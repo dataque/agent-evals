@@ -1,0 +1,25 @@
+# backend A2A targets. Replace the placeholder URLs with your actual backend
+# deployment URLs before running. Each entry resolves the BFF JSON-RPC
+# endpoint and declares its auth profile. EntraIdAuth picks up its
+# credentials from ENTRA_* env vars (see agent-evals/.env.example).
+#
+# Endpoint contract (per backend AgentController): POST <url> with JSON-RPC
+# 2.0 body { method: "message/send", params: { message: {...} } }.
+
+dev:
+  url: "https://REPLACE-ME-backend-dev.example.com/api/v1/bff/ai/agent/a2a"
+  description: "backend dev BFF — A2A endpoint (PLACEHOLDER: replace before running)"
+  requires_token: true
+  auth: oauth2-entra
+
+staging:
+  url: "https://REPLACE-ME-backend-staging.example.com/api/v1/bff/ai/agent/a2a"
+  description: "backend staging (UAT) BFF — A2A endpoint (PLACEHOLDER)"
+  requires_token: true
+  auth: oauth2-entra
+
+# prod:
+#   url: "https://REPLACE-ME-backend-prod.example.com/api/v1/bff/ai/agent/a2a"
+#   description: "backend production BFF — A2A endpoint (UNCOMMENT WHEN APPROVED)"
+#   requires_token: true
+#   auth: oauth2-entra

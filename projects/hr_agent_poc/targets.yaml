@@ -1,0 +1,14 @@
+fa:
+  url: "https://your-a2a-function-app.azurewebsites.net/?code=YOUR_CODE_HERE"
+  description: "Azure Function App (direct A2A) — HR Agent PoC"
+  requires_token: false
+
+bff-dev:
+  url: "https://cirruspl-gf-hr-tm-as-bff-svc-dev.azurewebsites.net/api/v1/bff/ai/agent/a2a"
+  description: "BFF Dev environment — HR Agent PoC"
+  requires_token: true
+
+# bff-uat:
+#   url: "https://..../api/v1/bff/ai/agent/a2a"
+#   description: "BFF UAT environment"
+#   requires_token: true
