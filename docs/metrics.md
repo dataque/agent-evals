@@ -1,6 +1,6 @@
 # HR Agent (Prod) — Evaluation Metrics
 
-This is a fresh ranking of the 26 candidate evaluation metrics for the **production** HR Agent — `frontend` (React/Next.js + `@ag-ui/client` + `@assistant-ui/react` over Server-Sent Events) talking to `backend` (Spring Boot 3 + Spring AI 1.x, orchestrator + three local subagents on Azure OpenAI `gpt-5.2`, persisted in Cosmos DB). It replaces the PoC ranking in [`metrics_poc_reference.md`](metrics_poc_reference.md), which was written for the in-process Chainlit/A2A PoC.
+This is a fresh ranking of the 26 candidate evaluation metrics for the **production** HR Agent — `frontend` (React/Next.js + `@ag-ui/client` + `@assistant-ui/react` over Server-Sent Events) talking to `backend` (Spring Boot 3 + Spring AI 1.x, orchestrator + three local subagents on Azure OpenAI `gpt-5.2`, persisted in Cosmos DB). It replaces `eval_metrics_dev.md`, which was written for the in-process Chainlit/A2A PoC.
 
 Where the PoC could pretend the agent was a tidy request/response unit with named, schema-versioned artifacts, the prod system is **a streaming event protocol with hand-maintained typed contracts on both sides of a Java/TypeScript boundary — and no built-in telemetry, audit log, token tracking, or safety filter**. CRs to `frontend` and `backend` are permitted, so this analysis is opinionated about which prod changes pay for themselves once an eval harness exists.
 
@@ -30,7 +30,7 @@ Where the PoC could pretend the agent was a tidy request/response unit with name
 
 - **# (Prod Project Impact rank)** — primary ordering used for prioritization in production.
 - **Also known as** — synonyms / equivalents across popular eval frameworks (DeepEval, Ragas, MLflow, OpenAI Evals).
-- **Dev rank** — same metric's rank in [`metrics_poc_reference.md`](metrics_poc_reference.md) (the PoC ranking) for cross-reference.
+- **Dev rank** — same metric's rank in `eval_metrics_dev.md` for cross-reference.
 - **S/M-turn** — applicability to single-turn vs multi-turn evaluation.
 - **Golden?** — does it require a curated reference value per scenario?
 - **Judge?** — is an LLM judge in the loop?
@@ -231,7 +231,7 @@ BLEU, ROUGE, CHRF, METEOR, GLEU, Exact Match, non-LLM string similarity (n-gram 
 
 ---
 
-## 12. Summary of rank changes vs the PoC ranking ([`metrics_poc_reference.md`](metrics_poc_reference.md))
+## 12. Summary of rank changes vs `eval_metrics_dev.md`
 
 | Dev rank | Metric | Prod rank | Δ | Reason |
 |---|---|---|---|---|
