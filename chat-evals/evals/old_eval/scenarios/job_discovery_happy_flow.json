@@ -1,0 +1,31 @@
+{
+  "name": "job_discovery_happy_flow",
+  "description": "Job Discovery agent happy path: find matches -> view job -> ask JD question",
+  "agent": "job_discovery",
+  "profile_path": "data/miro_profile.json",
+  "turns": [
+    {
+      "turn": 1,
+      "user": "Find me matching roles",
+      "expectations": {
+        "tool_called": "get_matches",
+        "success": true
+      }
+    },
+    {
+      "turn": 2,
+      "user": "Tell me more about the first job",
+      "expectations": {
+        "tool_called": "view_job"
+      }
+    },
+    {
+      "turn": 3,
+      "user": "Does that role require Python?",
+      "expectations": {
+        "tool_called": "ask_jd_qa",
+        "success": true
+      }
+    }
+  ]
+}

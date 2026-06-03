@@ -1,0 +1,31 @@
+{
+  "name": "profile_happy_flow",
+  "description": "Profile agent happy path: analyze profile -> infer skills -> add skills to profile",
+  "agent": "profile",
+  "profile_path": "data/miro_profile.json",
+  "turns": [
+    {
+      "turn": 1,
+      "user": "Analyse my profile",
+      "expectations": {
+        "tool_called": "profile_analyzer",
+        "success": true
+      }
+    },
+    {
+      "turn": 2,
+      "user": "Add Python and Docker to my profile",
+      "expectations": {
+        "tool_called": "update_profile",
+        "success": true
+      }
+    },
+    {
+      "turn": 3,
+      "user": "Show what I've added recently",
+      "expectations": {
+        "tool_called": "list_profile_entries"
+      }
+    }
+  ]
+}
