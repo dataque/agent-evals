@@ -1,22 +1,30 @@
 """
-A2A HTTP client for calling the HR Agent endpoint.
+A2A HTTP client for calling an agent endpoint.
 
-Returns the structured hr-agent v1 response shape so trace-aware scorers can
-inspect tool calls, sub-agent attribution, and per-task performance metadata.
-A backward-compat helper ``extract_text`` keeps the legacy text-only contract
+Returns a structured v1 response shape so trace-aware scorers can inspect tool
+calls, sub-agent attribution, and per-task performance metadata. A
+backward-compat helper ``extract_text`` keeps the legacy text-only contract
 working for callers that haven't migrated to structured outputs.
+
+Task metadata keys are namespaced (e.g. ``agent.latency_ms``). The namespace
+defaults to ``agent`` and can be overridden with the ``A2A_METADATA_NS``
+environment variable to match whatever prefix your agent emits.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
 import requests
 
-logger = logging.getLogger("hr_benchmarker.a2a_client")
+logger = logging.getLogger("benchmarker.a2a_client")
+
+# Namespace prefix for task-metadata keys the agent emits (e.g. "agent.tokens").
+NS = os.environ.get("A2A_METADATA_NS", "agent")
 
 
 class A2ARequestError(Exception):
@@ -25,14 +33,14 @@ class A2ARequestError(Exception):
 
 @dataclass
 class A2AResponse:
-    """Structured hr-agent v1 response surface.
+    """Structured v1 response surface.
 
     ``text`` is always populated (final assistant text). ``trace`` is the parsed
-    ``hr-agent/Trace@v1`` payload from the ``execution_trace`` artifact, if
-    present. ``artifacts`` is a name→data map of all named artifacts (excluding
-    the trace). ``metadata`` is the raw task metadata dict (keys prefixed
-    ``hr-agent.``). ``raw`` is the complete JSON-RPC response for callers that
-    need fields not surfaced here.
+    Trace payload from the ``execution_trace`` artifact, if present.
+    ``artifacts`` is a name→data map of all named artifacts (excluding the
+    trace). ``metadata`` is the raw task metadata dict (keys prefixed with the
+    configured namespace, ``agent.`` by default). ``raw`` is the complete
+    JSON-RPC response for callers that need fields not surfaced here.
     """
 
     text: str
@@ -52,22 +60,22 @@ class A2AResponse:
 
     @property
     def latency_ms(self) -> int | None:
-        v = self.metadata.get("hr-agent.latency_ms")
+        v = self.metadata.get(f"{NS}.latency_ms")
         return int(v) if v is not None else None
 
     @property
     def tokens(self) -> dict[str, int]:
-        return dict(self.metadata.get("hr-agent.tokens") or {})
+        return dict(self.metadata.get(f"{NS}.tokens") or {})
 
     @property
     def cost_usd(self) -> float | None:
-        cost = self.metadata.get("hr-agent.cost") or {}
+        cost = self.metadata.get(f"{NS}.cost") or {}
         usd = cost.get("usd") if isinstance(cost, dict) else None
         return float(usd) if usd is not None else None
 
     @property
     def error(self) -> dict[str, Any] | None:
-        err = self.metadata.get("hr-agent.error")
+        err = self.metadata.get(f"{NS}.error")
         return dict(err) if isinstance(err, dict) else None
 
 
@@ -146,8 +154,13 @@ def _parse_response(response_json: dict) -> A2AResponse:
     )
 
 
-def create_bff_thread(base_url: str, headers: dict) -> str:
-    """Create a thread via the BFF GraphQL endpoint."""
+def create_graphql_thread(base_url: str, headers: dict) -> str:
+    """Create a conversation thread via a GraphQL ``createThread`` mutation.
+
+    Some services require a server-minted thread/conversation id before
+    accepting A2A messages. This derives the GraphQL URL from ``base_url`` (by
+    replacing the ``/api/...`` suffix with ``/graphql``) and returns the new id.
+    """
     parts = base_url.split("/api/")
     graphql_url = parts[0] + "/graphql"
 
@@ -172,7 +185,7 @@ def create_bff_thread(base_url: str, headers: dict) -> str:
     if not thread_id:
         raise A2ARequestError(f"Failed to create thread. GraphQL response: {data}")
 
-    logger.debug("Created BFF thread: %s", thread_id)
+    logger.debug("Created thread: %s", thread_id)
     return thread_id
 
 
@@ -187,9 +200,9 @@ def make_a2a_predict_fn(
     Parameters
     ----------
     base_url : str
-        The A2A endpoint URL (e.g. Azure Function URL with code param).
+        The A2A endpoint URL.
     headers : dict | None
-        Optional HTTP headers (e.g. Authorization for BFF endpoints).
+        Optional HTTP headers (e.g. Authorization for token-protected endpoints).
     return_structured : bool
         When True (default), the predict function returns an ``A2AResponse``
         dataclass exposing text + trace + artifacts + metadata. When False,

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hr-agent.local/schemas/a2a_response.v1.json",
-  "title": "hr-agent A2A response v1",
-  "description": "JSON-RPC envelope wrapping a Task with hr-agent v1 response shape.",
+  "$id": "https://example.com/agent-evals/schemas/a2a_response.v1.json",
+  "title": "Agent A2A response v1",
+  "description": "JSON-RPC envelope wrapping a Task with the v1 agent response shape. Metadata keys use a configurable namespace prefix (default: agent).",
   "type": "object",
   "required": ["jsonrpc", "id", "result"],
   "properties": {
@@ -113,9 +113,9 @@
     "TaskMetadata": {
       "type": "object",
       "properties": {
-        "hr-agent.schema_version": { "type": "string" },
-        "hr-agent.latency_ms": { "type": "integer", "minimum": 0 },
-        "hr-agent.tokens": {
+        "agent.schema_version": { "type": "string" },
+        "agent.latency_ms": { "type": "integer", "minimum": 0 },
+        "agent.tokens": {
           "type": "object",
           "properties": {
             "input": { "type": "integer", "minimum": 0 },
@@ -123,7 +123,7 @@
             "total": { "type": "integer", "minimum": 0 }
           }
         },
-        "hr-agent.agent_token_totals": {
+        "agent.agent_token_totals": {
           "type": "object",
           "additionalProperties": {
             "type": "object",
@@ -133,11 +133,11 @@
             }
           }
         },
-        "hr-agent.models": {
+        "agent.models": {
           "type": "array",
           "items": { "type": "string" }
         },
-        "hr-agent.cost": {
+        "agent.cost": {
           "type": "object",
           "required": ["usd", "rates_version"],
           "properties": {
@@ -155,15 +155,15 @@
             }
           }
         },
-        "hr-agent.cost_unknown_models": {
+        "agent.cost_unknown_models": {
           "type": "array",
           "items": { "type": "string" }
         },
-        "hr-agent.user_id": { "type": "string" },
-        "hr-agent.identity_source": {
+        "agent.user_id": { "type": "string" },
+        "agent.identity_source": {
           "enum": ["a2a-message-metadata", "jwt", "context-id"]
         },
-        "hr-agent.error": {
+        "agent.error": {
           "type": "object",
           "required": ["code", "type"],
           "properties": {
@@ -186,7 +186,7 @@
       "type": "object",
       "required": ["schema", "trace_id", "events"],
       "properties": {
-        "schema": { "const": "hr-agent/Trace@v1" },
+        "schema": { "const": "agent/Trace@v1" },
         "trace_id": { "type": "string" },
         "events": {
           "type": "array",
@@ -232,7 +232,7 @@
       "type": "object",
       "required": ["schema", "code", "type", "message"],
       "properties": {
-        "schema": { "const": "hr-agent/Error@v1" },
+        "schema": { "const": "agent/Error@v1" },
         "code": {
           "enum": [
             "auth_error",
@@ -253,7 +253,7 @@
       "type": "object",
       "required": ["schema", "reason"],
       "properties": {
-        "schema": { "const": "hr-agent/Refusal@v1" },
+        "schema": { "const": "agent/Refusal@v1" },
         "reason": { "type": "string" },
         "policy": { "type": "string" }
       }

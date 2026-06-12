@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def _trace(events: list[dict]) -> dict:
-    return {"schema": "hr-agent/Trace@v1", "trace_id": "t1", "events": events}
+    return {"schema": "agent/Trace@v1", "trace_id": "t1", "events": events}
 
 
 def _tool_call(name: str, *, args: dict | None = None, tool_call_id: str = "tc1") -> dict:
@@ -63,17 +63,17 @@ class TestToolTraceF1:
 class TestToolArgumentCorrectness:
     def test_subset_match(self):
         from evals.scorers import tool_argument_correctness
-        trace = _trace([_tool_call("search_jobs", args={"q": "python", "extra": 1})])
+        trace = _trace([_tool_call("search", args={"q": "python", "extra": 1})])
         score = tool_argument_correctness(
-            {"expected_tool_args": {"search_jobs": {"q": "python"}}}, trace
+            {"expected_tool_args": {"search": {"q": "python"}}}, trace
         )
         assert score == 1.0
 
     def test_missing_key_fails(self):
         from evals.scorers import tool_argument_correctness
-        trace = _trace([_tool_call("search_jobs", args={"q": "python"})])
+        trace = _trace([_tool_call("search", args={"q": "python"})])
         score = tool_argument_correctness(
-            {"expected_tool_args": {"search_jobs": {"q": "python", "loc": "ZRH"}}}, trace
+            {"expected_tool_args": {"search": {"q": "python", "limit": 10}}}, trace
         )
         assert score == 0.0
 
@@ -98,44 +98,44 @@ class TestStepEfficiency:
 class TestPlanQuality:
     def test_routes_within_envelope(self):
         from evals.scorers import plan_quality
-        trace = _trace([_route("profile")])
-        score = plan_quality({"expected_routes": ["profile"]}, trace)
+        trace = _trace([_route("search")])
+        score = plan_quality({"expected_routes": ["search"]}, trace)
         assert score == 1.0
 
     def test_off_route_zero(self):
         from evals.scorers import plan_quality
-        trace = _trace([_route("outreach")])
-        score = plan_quality({"expected_routes": ["profile"]}, trace)
+        trace = _trace([_route("compose")])
+        score = plan_quality({"expected_routes": ["search"]}, trace)
         assert score == 0.0
 
 
 class TestAuditLog:
     def test_action_taken_with_ok(self):
         from evals.scorers import audit_log_action_taken
-        trace = _trace([_tool_call("persist_skills"), _tool_result("persist_skills")])
-        score = audit_log_action_taken({"expected_actions": ["persist_skills"]}, trace)
+        trace = _trace([_tool_call("save_record"), _tool_result("save_record")])
+        score = audit_log_action_taken({"expected_actions": ["save_record"]}, trace)
         assert score == 1.0
 
     def test_action_with_error_fails(self):
         from evals.scorers import audit_log_action_taken
-        trace = _trace([_tool_call("persist_skills"), _tool_result("persist_skills", status="error")])
-        score = audit_log_action_taken({"expected_actions": ["persist_skills"]}, trace)
+        trace = _trace([_tool_call("save_record"), _tool_result("save_record", status="error")])
+        score = audit_log_action_taken({"expected_actions": ["save_record"]}, trace)
         assert score == 0.0
 
 
-class TestCardFormat:
+class TestArtifactFormat:
     def test_artifact_present_with_schema(self):
-        from evals.scorers import card_format_correctness
-        score = card_format_correctness(
-            {"expected_artifacts": {"matched_jobs": "hr-agent/JobCard@v1"}},
-            {"matched_jobs": {"schema": "hr-agent/JobCard@v1", "items": []}},
+        from evals.scorers import artifact_format_correctness
+        score = artifact_format_correctness(
+            {"expected_artifacts": {"result_card": "agent/Card@v1"}},
+            {"result_card": {"schema": "agent/Card@v1", "items": []}},
         )
         assert score == 1.0
 
     def test_artifact_missing(self):
-        from evals.scorers import card_format_correctness
-        score = card_format_correctness(
-            {"expected_artifacts": {"matched_jobs": "hr-agent/JobCard@v1"}},
+        from evals.scorers import artifact_format_correctness
+        score = artifact_format_correctness(
+            {"expected_artifacts": {"result_card": "agent/Card@v1"}},
             {},
         )
         assert score == 0.0

@@ -1,4 +1,4 @@
-"""Tests for evals.hr_benchmarker.a2a_client — parses hr-agent v1 responses."""
+"""Tests for evals.benchmarker.a2a_client — parses v1 agent responses."""
 
 from __future__ import annotations
 
@@ -28,8 +28,8 @@ def _v1_response_fixture() -> dict:
                     "kind": "message",
                     "messageId": "msg-1",
                     "role": "agent",
-                    "parts": [{"kind": "text", "text": "Found 3 matching roles."}],
-                    "metadata": {"hr-agent.agent_id": "orchestrator"},
+                    "parts": [{"kind": "text", "text": "Found 3 matching results."}],
+                    "metadata": {"agent.agent_id": "orchestrator"},
                 },
             },
             "history": [],
@@ -41,7 +41,7 @@ def _v1_response_fixture() -> dict:
                         {
                             "kind": "data",
                             "data": {
-                                "schema": "hr-agent/Trace@v1",
+                                "schema": "agent/Trace@v1",
                                 "trace_id": "trace-1",
                                 "events": [
                                     {
@@ -51,19 +51,19 @@ def _v1_response_fixture() -> dict:
                                         "type": "route",
                                         "agent_id": "orchestrator",
                                         "timestamp": "2026-04-28T00:00:00Z",
-                                        "data": {"route_to": "job_discovery", "reason": ""},
+                                        "data": {"route_to": "search", "reason": ""},
                                     },
                                     {
                                         "span_id": "s2",
                                         "parent_span_id": "s1",
                                         "sequence": 1,
                                         "type": "tool_call",
-                                        "agent_id": "job_discovery",
+                                        "agent_id": "search",
                                         "timestamp": "2026-04-28T00:00:01Z",
                                         "data": {
                                             "tool_call_id": "tc1",
                                             "attempt": 0,
-                                            "tool_name": "search_jobs",
+                                            "tool_name": "search",
                                             "args": {"q": "python"},
                                         },
                                     },
@@ -74,30 +74,30 @@ def _v1_response_fixture() -> dict:
                             },
                         }
                     ],
-                    "metadata": {"hr-agent.streamable": True},
+                    "metadata": {"agent.streamable": True},
                 },
                 {
                     "artifactId": "art-2",
-                    "name": "matched_jobs",
+                    "name": "result_card",
                     "parts": [
                         {
                             "kind": "data",
-                            "data": {"schema": "hr-agent/JobCard@v1", "items": [{"id": 1}]},
+                            "data": {"schema": "agent/Card@v1", "items": [{"id": 1}]},
                         }
                     ],
                 },
             ],
             "metadata": {
-                "hr-agent.schema_version": "1.0",
-                "hr-agent.latency_ms": 1234,
-                "hr-agent.tokens": {"input": 50, "output": 12, "total": 62},
-                "hr-agent.models": ["gpt-4o"],
-                "hr-agent.cost": {
+                "agent.schema_version": "1.0",
+                "agent.latency_ms": 1234,
+                "agent.tokens": {"input": 50, "output": 12, "total": 62},
+                "agent.models": ["gpt-4o"],
+                "agent.cost": {
                     "usd": 0.001,
                     "rates_version": "2025-04",
                     "by_model": {"gpt-4o": {"input_per_1k": 0.0025, "output_per_1k": 0.01}},
                 },
-                "hr-agent.identity_source": "a2a-message-metadata",
+                "agent.identity_source": "a2a-message-metadata",
             },
         },
     }
@@ -105,25 +105,25 @@ def _v1_response_fixture() -> dict:
 
 class TestParseResponse:
     def test_extracts_text_trace_artifacts_metadata(self):
-        from evals.hr_benchmarker.a2a_client import _parse_response
+        from evals.benchmarker.a2a_client import _parse_response
 
         resp = _parse_response(_v1_response_fixture())
-        assert resp.text == "Found 3 matching roles."
+        assert resp.text == "Found 3 matching results."
         assert resp.state == "completed"
-        assert resp.trace["schema"] == "hr-agent/Trace@v1"
+        assert resp.trace["schema"] == "agent/Trace@v1"
         assert len(resp.events) == 2
-        assert resp.artifacts["matched_jobs"]["schema"] == "hr-agent/JobCard@v1"
+        assert resp.artifacts["result_card"]["schema"] == "agent/Card@v1"
         assert resp.tokens == {"input": 50, "output": 12, "total": 62}
         assert resp.latency_ms == 1234
         assert resp.cost_usd == 0.001
         assert resp.error is None
 
     def test_failed_response_surfaces_error(self):
-        from evals.hr_benchmarker.a2a_client import _parse_response
+        from evals.benchmarker.a2a_client import _parse_response
 
         fixture = _v1_response_fixture()
         fixture["result"]["status"]["state"] = "failed"
-        fixture["result"]["metadata"]["hr-agent.error"] = {
+        fixture["result"]["metadata"]["agent.error"] = {
             "code": "tool_error",
             "type": "ConnectionError",
         }
@@ -132,13 +132,13 @@ class TestParseResponse:
         assert resp.error == {"code": "tool_error", "type": "ConnectionError"}
 
     def test_jsonrpc_error_raises(self):
-        from evals.hr_benchmarker.a2a_client import _parse_response, A2ARequestError
+        from evals.benchmarker.a2a_client import _parse_response, A2ARequestError
 
         with pytest.raises(A2ARequestError):
             _parse_response({"jsonrpc": "2.0", "id": "x", "error": {"message": "bad"}})
 
     def test_extract_text_works_on_legacy_text_only_response(self):
-        from evals.hr_benchmarker.a2a_client import extract_text
+        from evals.benchmarker.a2a_client import extract_text
 
         result = {
             "status": {

@@ -30,7 +30,7 @@ if not url:
     print("ERROR: A2A_BASE_URL not set in .env")
     sys.exit(1)
 
-question = sys.argv[1] if len(sys.argv) > 1 else "Analyse my profile"
+question = sys.argv[1] if len(sys.argv) > 1 else "What can you help me with?"
 
 payload = {
     "jsonrpc": "2.0",

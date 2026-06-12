@@ -1,7 +1,7 @@
 """
-Evaluation harness for the HR Agent system.
+Evaluation harness for benchmarking an agent over the A2A protocol.
 
 Supports two benchmarker modes:
-  - AICEBenchmarker (aice): Official Databricks eval
-  - HRBenchmarker (hr):     Local MLflow dev eval
+  - LocalBenchmarker (local): local MLflow dev eval (default)
+  - AICEBenchmarker (aice):   optional external benchmarker integration
 """

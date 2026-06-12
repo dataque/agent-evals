@@ -1,7 +1,8 @@
 """
-Evaluation datasets for the HR Agent system.
+Example evaluation datasets.
 
-Each dataset item is either single-turn or multi-turn:
+Replace these with datasets for the agent you are evaluating, then register
+them in ``ALL_DATASETS``. Each item is either single-turn or multi-turn:
 
 Single-turn:
     {"inputs": {"question": str}, "expectations": {...}}
@@ -12,162 +13,82 @@ Multi-turn:
         ...
     ]}}
 
-Multi-turn items share a contextId across turns (HRBenchmarker).
-In AICE mode, multi-turn items are flattened to independent single-turn items.
+Multi-turn items share a contextId across turns (LocalBenchmarker). In AICE
+mode, multi-turn items are flattened to independent single-turn items.
+
+Supported expectation fields (all optional — each scorer skips when its field
+is absent):
+  - expected_response     : reference answer for the Correctness judge
+  - response_must_contain : substrings the output must include
+  - expected_tool_calls   : tool names the agent should call (tool_trace_f1)
+  - expected_tool_args    : {tool: {arg: value}} expected call args
+  - max_steps             : step budget for step_efficiency
+  - expected_routes       : allowed sub-agent ids for plan_quality
+  - allowed_tool_calls    : allowed tool names for plan_quality
+  - expected_actions      : mutating tools that must complete with status ok
+  - expected_artifacts    : {name: schema_id} artifacts the agent must emit
 """
 
 from __future__ import annotations
 
-PROFILE_SKILLS_DATASET = [
+EXAMPLE_DATASET = [
     # ------------------------------------------------------------------
-    # Multi-turn: Skill inference → modification → confirmation → matching
-    # Scenario 1 from requirements (REQ-PS-001, 005, 007, 008, 011)
+    # Single-turn: factual question with a reference answer + keyword check
+    # ------------------------------------------------------------------
+    {
+        "inputs": {"question": "What is the capital of France?"},
+        "expectations": {
+            "expected_response": "The capital of France is Paris.",
+            "response_must_contain": ["Paris"],
+        },
+    },
+
+    # ------------------------------------------------------------------
+    # Single-turn: open-ended capability question (relevance / tone only)
+    # ------------------------------------------------------------------
+    {
+        "inputs": {"question": "What can you help me with?"},
+        "expectations": {
+            "expected_response": (
+                "A brief summary of the assistant's capabilities, inviting the "
+                "user to ask a question."
+            ),
+        },
+    },
+
+    # ------------------------------------------------------------------
+    # Single-turn with trace expectations (for tool-using agents that emit
+    # an execution_trace artifact — see schemas/a2a_response.v1.json)
+    # ------------------------------------------------------------------
+    {
+        "inputs": {"question": "What's the weather in Paris right now?"},
+        "expectations": {
+            "expected_tool_calls": ["get_weather"],
+            "expected_tool_args": {"get_weather": {"city": "Paris"}},
+            "max_steps": 3,
+        },
+    },
+
+    # ------------------------------------------------------------------
+    # Multi-turn: a short conversation sharing one contextId
     # ------------------------------------------------------------------
     {
         "inputs": {
-            "scenario": "skills_modify_and_confirm",
+            "scenario": "recommendation_followup",
             "turns": [
                 {
-                    "question": "Suggest skills I should add to my profile",
+                    "question": "Recommend a good introductory book on machine learning.",
                     "expectations": {
-                        "expected_response": (
-                            "A personalized greeting referencing the user's name and role, "
-                            "followed by AI-generated skill suggestions categorized into "
-                            "top skills and additional skills. Includes a prompt to review "
-                            "the generated skills and add at least 5 top skills for role suggestions."
-                        ),
-                        "response_must_contain": ["skill"],
+                        "response_must_contain": ["book"],
                     },
                 },
                 {
-                    "question": (
-                        "Remove all the additional skills, move P&L and Analytical "
-                        "thinking to top skills, and add Java, javascript and react "
-                        "to top skills"
-                    ),
+                    "question": "Why did you pick that one?",
                     "expectations": {
                         "expected_response": (
-                            "Confirmation that the skills have been updated. All additional "
-                            "skills removed. P&L and Analytical Thinking moved to top skills. "
-                            "Java, Javascript, and React added to top skills. Updated skill "
-                            "count shown."
+                            "A justification that references the book recommended "
+                            "in the previous turn."
                         ),
-                        "response_must_contain": ["skill"],
-                    },
-                },
-                {
-                    "question": "Confirm skills",
-                    "expectations": {
-                        "expected_response": (
-                            "Skills saved to the user's profile. Confirmation message "
-                            "indicating skills have been added. Agent transitions to "
-                            "looking for relevant open roles."
-                        ),
-                        "response_must_contain": ["confirm", "profile"],
-                    },
-                },
-            ],
-        },
-    },
-
-    # ------------------------------------------------------------------
-    # Single-turn: Add specific skills (REQ-PS-004)
-    # ------------------------------------------------------------------
-    {
-        "inputs": {"question": "Add Python and Docker to my top skills"},
-        "expectations": {
-            "expected_response": (
-                "Confirmation that Python and Docker have been added to the "
-                "user's top skills. Updated skill list shown."
-            ),
-            "response_must_contain": ["Python", "Docker"],
-        },
-    },
-
-    # ------------------------------------------------------------------
-    # Single-turn: List current skills (REQ-PS-001)
-    # ------------------------------------------------------------------
-    {
-        "inputs": {"question": "What skills do I currently have on my profile?"},
-        "expectations": {
-            "expected_response": (
-                "A list of the user's current skills, categorized into top skills "
-                "and additional skills, with the total count."
-            ),
-            "response_must_contain": ["skill"],
-        },
-    },
-
-    # ------------------------------------------------------------------
-    # Single-turn: Remove a skill (REQ-PS-004)
-    # ------------------------------------------------------------------
-    {
-        "inputs": {"question": "Remove Analytics from my top skills"},
-        "expectations": {
-            "expected_response": (
-                "Confirmation that Analytics has been removed from the user's "
-                "top skills. Updated skill list shown."
-            ),
-            "response_must_contain": ["Analytics"],
-        },
-    },
-
-    # ------------------------------------------------------------------
-    # Single-turn: Profile not set up (REQ-PS-009)
-    # ------------------------------------------------------------------
-    {
-        "inputs": {"question": "Analyse my profile"},
-        "expectations": {
-            "expected_response": (
-                "The user's MyCareer profile is not set up. Profile strength "
-                "is 0% / Not started. Prompt to set up the profile via MyCareer. "
-                "Mentions it only takes 5 minutes with a CV upload."
-            ),
-            "response_must_contain": ["profile"],
-        },
-    },
-
-    # ------------------------------------------------------------------
-    # Single-turn: How complete is my profile (REQ-PS-010)
-    # ------------------------------------------------------------------
-    {
-        "inputs": {"question": "How complete is my profile?"},
-        "expectations": {
-            "expected_response": (
-                "Profile completion status with a percentage score. If profile "
-                "is incomplete, guidance on what to add to improve the score."
-            ),
-            "response_must_contain": ["profile"],
-        },
-    },
-
-    # ------------------------------------------------------------------
-    # Multi-turn: Confirm existing skills → auto role matching
-    # Scenario for profiles with skills already set up (REQ-PS-007, 008, 011)
-    # ------------------------------------------------------------------
-    {
-        "inputs": {
-            "scenario": "confirm_existing_skills_and_match",
-            "turns": [
-                {
-                    "question": "Show me my skills",
-                    "expectations": {
-                        "expected_response": (
-                            "Display of the user's current skills categorized into "
-                            "top skills and additional skills."
-                        ),
-                        "response_must_contain": ["skill"],
-                    },
-                },
-                {
-                    "question": "Confirm skills",
-                    "expectations": {
-                        "expected_response": (
-                            "Skills confirmed and saved to profile. Agent automatically "
-                            "transitions to finding relevant open roles. Returns matched "
-                            "roles with job titles, levels, divisions, and locations."
-                        ),
-                        "response_must_contain": ["profile"],
                     },
                 },
             ],
@@ -177,10 +98,11 @@ PROFILE_SKILLS_DATASET = [
 
 
 # ---------------------------------------------------------------------------
-# Aggregate all datasets
+# Aggregate all datasets. Add an entry per agent/dataset you want to evaluate;
+# the key becomes a valid value for the --agent flag.
 # ---------------------------------------------------------------------------
 ALL_DATASETS: dict[str, list[dict]] = {
-    "profile": PROFILE_SKILLS_DATASET,
+    "example": EXAMPLE_DATASET,
 }
 
 

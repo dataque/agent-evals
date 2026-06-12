@@ -1,8 +1,9 @@
 """
-HRBenchmarker — local MLflow-based evaluation matching AICEBenchmarker's interface.
+LocalBenchmarker — local MLflow-based evaluation matching AICEBenchmarker's
+interface.
 
-Uses mlflow.genai.evaluate with local file-based tracking.
-Configures Azure OpenAI as the LLM judge for built-in scorers.
+Uses mlflow.genai.evaluate with local file-based tracking. Configures an LLM
+judge (OpenAI or Azure OpenAI) for the built-in scorers.
 """
 
 from __future__ import annotations
@@ -19,25 +20,29 @@ import pandas as pd
 
 from .a2a_client import A2ARequestError, A2AResponse
 
-logger = logging.getLogger("hr_benchmarker.benchmarker")
+logger = logging.getLogger("benchmarker.benchmarker")
 
 
-def _configure_azure_openai_judge():
-    """Set environment variables so MLflow's built-in LLM-judge scorers
-    use Azure OpenAI instead of direct OpenAI.
+def _configure_judge_env():
+    """Configure the environment so MLflow's built-in LLM-judge scorers can
+    reach a judge model.
 
-    Reads from the project's standard env vars (AZURE_OPENAI_*) and maps
-    them to the OPENAI_* vars that MLflow expects.
+    Direct OpenAI works out of the box via ``OPENAI_API_KEY``. For Azure
+    OpenAI, map the ``AZURE_OPENAI_*`` vars to the ``AZURE_*`` vars that
+    litellm (used by MLflow) expects.
     """
+    if os.environ.get("OPENAI_API_KEY"):
+        return  # direct OpenAI judge is ready
+
     api_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
     endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
-    deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
     api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
 
     if not api_key or not endpoint:
         logger.warning(
-            "AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT must be set "
-            "for LLM-judge scorers to work. Scorers may fail."
+            "No judge credentials found. Set OPENAI_API_KEY (OpenAI) or "
+            "AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT (Azure). "
+            "LLM-judge scorers may fail."
         )
         return
 
@@ -46,18 +51,15 @@ def _configure_azure_openai_judge():
     os.environ.setdefault("AZURE_API_BASE", endpoint)
     os.environ.setdefault("AZURE_API_VERSION", api_version)
 
-    logger.info(
-        "Configured Azure OpenAI judge: endpoint=%s, deployment=%s",
-        endpoint, deployment,
-    )
+    logger.info("Configured Azure OpenAI judge: endpoint=%s", endpoint)
 
 
 def _default_thread_factory() -> str:
-    """Generate a random UUID as contextId (suitable for FA targets)."""
+    """Generate a random UUID as contextId."""
     return str(uuid.uuid4())
 
 
-class HRBenchmarker:
+class LocalBenchmarker:
     """Local MLflow-based benchmarker with the same interface as AICEBenchmarker.
 
     Parameters
@@ -78,8 +80,8 @@ class HRBenchmarker:
         e.g. ``{"model": ["gpt-4o", "gpt-4o-mini"], "temperature": [0.3, 0.7]}``.
     thread_factory : Callable or None
         A callable that returns a new contextId string. Called once per
-        dataset sample (single-turn). For multi-turn evolution, will be
-        called once per conversation instead. Defaults to UUID generation.
+        single-turn sample and once per multi-turn conversation. Defaults to
+        UUID generation.
     """
 
     def __init__(
@@ -218,12 +220,11 @@ class HRBenchmarker:
         df = pd.DataFrame(predictions)
 
         # mlflow.genai.evaluate auto-deserialises the `trace` column via
-        # Trace.from_dict, which raises on empty dicts. BFF (backend) targets
-        # don't yet emit the v1 execution_trace artifact (see
-        # evals/a2a_response_v1.md §11), so the column is populated with {}
-        # for those runs. Normalise empty values to None and drop the column
-        # if nothing was captured; trace-aware scorers handle missing trace
-        # by returning None (skipped).
+        # Trace.from_dict, which raises on empty dicts. Targets that don't emit
+        # the v1 execution_trace artifact leave the column populated with {} for
+        # those runs. Normalise empty values to None and drop the column if
+        # nothing was captured; trace-aware scorers handle a missing trace by
+        # returning None (skipped).
         if "trace" in df.columns:
             df["trace"] = df["trace"].apply(
                 lambda t: t if isinstance(t, dict) and t else None
@@ -248,7 +249,7 @@ class HRBenchmarker:
         Returns a dict of aggregated metrics across all trials and
         hyperparameter combinations.
         """
-        _configure_azure_openai_judge()
+        _configure_judge_env()
         mlflow.set_experiment(self.experiment_name)
 
         combos = self._generate_hyperparam_combos()

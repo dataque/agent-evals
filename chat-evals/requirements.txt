@@ -5,4 +5,4 @@ requests
 pandas
 python-dotenv
 pysqlite3-binary
-# aice-benchmarker>=1.0.42   # uncomment to use --mode aice
+# aice-benchmarker>=1.0.42   # optional: external benchmarker for --mode aice

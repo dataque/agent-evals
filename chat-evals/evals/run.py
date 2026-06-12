@@ -1,47 +1,45 @@
 #!/usr/bin/env python3
 """
-A2A benchmark runner for the HR Agent system.
+A2A benchmark runner for an agent endpoint.
 
 Supports two modes:
-  - "aice" (default): Uses AICEBenchmarker (Databricks official eval)
-  - "hr":             Uses HRBenchmarker (local MLflow dev eval)
+  - "local" (default): Uses LocalBenchmarker (local MLflow dev eval)
+  - "aice":            Uses AICEBenchmarker (optional external benchmarker)
 
-Supports multiple A2A endpoint targets:
-  - "fa" (default):   Azure Function App (direct A2A)
-  - "bff-dev":        BFF Dev environment (requires --token)
+Supports multiple A2A endpoint targets defined in targets.yaml:
+  - "direct" (default): a direct A2A endpoint
+  - "remote-dev":       a remote service that requires --token
 
 Usage:
-    # Run against Function App (default target)
-    python -m evals --target fa --mode hr --agent profile
+    # Run against the direct target with the local benchmarker
+    python -m evals --target direct --mode local --agent example
 
-    # Run against BFF Dev (requires SSO token)
-    python -m evals --target bff-dev --mode hr --agent profile --token <sso-token>
+    # Run against a token-protected remote service
+    python -m evals --target remote-dev --mode local --agent example --token <token>
 
-    # Run with AICEBenchmarker (official eval)
-    python -m evals --target fa --mode aice --agent profile
+    # Run with the optional AICEBenchmarker
+    python -m evals --target direct --mode aice --agent example
 
-    # Run all agents
-    python -m evals --target fa --mode hr
+    # Run all registered datasets
+    python -m evals --target direct --mode local
 
     # Run with multiple trials
-    python -m evals --target fa --mode hr --agent orchestrator --n-trials 3
+    python -m evals --target direct --mode local --agent example --n-trials 3
 
-    # Override target URL directly
-    python -m evals --base-url "https://..." --mode hr --agent profile
+    # Override the target URL directly
+    python -m evals --base-url "https://..." --mode local --agent example
 
 Requirements:
-    - For "hr" mode:  mlflow[databricks]>=3.10.0, .env file with Azure OpenAI credentials
-    - For "aice" mode: aice-benchmarker>=1.0.42, mlflow[databricks]>=3.10.0
+    - For "local" mode: mlflow[databricks]>=3.10.0, plus judge credentials in
+      .env (OPENAI_API_KEY, or AZURE_OPENAI_* for Azure).
+    - For "aice" mode:  aice-benchmarker, mlflow[databricks]>=3.10.0
 
-Design decisions:
-    - contextId / thread management only applies to "hr" mode. AICE mode uses
+Design notes:
+    - contextId / thread management only applies to "local" mode. AICE mode uses
       get_a2a_pred_fn from the aice package whose signature we don't control.
-      TODO: When aice's get_a2a_pred_fn supports contextId, extend thread
-      management to AICE mode as well.
-    - contextId is managed in the benchmarker loop, not inside predict_fn.
-      This enables evolution from single-turn to multi-turn conversations:
-      single-turn = new contextId per sample, multi-turn = same contextId
-      across turns. See evals_multi_turn_design.md in memory for full design.
+    - contextId is managed in the benchmarker loop, not inside predict_fn, so a
+      single-turn sample gets a fresh contextId while a multi-turn item shares
+      one contextId across its turns.
 """
 
 from __future__ import annotations
@@ -74,6 +72,23 @@ with open(_TARGETS_FILE, "r") as _f:
     TARGETS: dict[str, dict] = yaml.safe_load(_f)
 
 
+def _resolve_judge_model() -> str | None:
+    """Resolve the MLflow judge-model URI for local mode.
+
+    Precedence: explicit JUDGE_MODEL env var → OpenAI (if OPENAI_API_KEY) →
+    Azure (if AZURE_OPENAI_API_KEY) → None (MLflow default).
+    """
+    explicit = os.environ.get("JUDGE_MODEL")
+    if explicit:
+        return explicit
+    if os.environ.get("OPENAI_API_KEY"):
+        return "openai:/gpt-4o"
+    if os.environ.get("AZURE_OPENAI_API_KEY"):
+        deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+        return f"azure:/{deployment}"
+    return None
+
+
 def _flatten_multi_turn(dataset: list[dict]) -> list[dict]:
     """Flatten multi-turn items into independent single-turn items.
 
@@ -98,9 +113,9 @@ def run_benchmark(
     agent_name: str | None = None,
     n_trials: int = 1,
     scorer_mode: str = "all",
-    experiment_name: str = "a2a-hr-agent-benchmark",
+    experiment_name: str = "a2a-agent-benchmark",
     hyperparameters: dict | None = None,
-    mode: str = "aice",
+    mode: str = "local",
     headers: dict | None = None,
     requires_token: bool = False,
 ) -> dict:
@@ -109,9 +124,9 @@ def run_benchmark(
     Parameters
     ----------
     base_url : str
-        The A2A endpoint URL for the HR Agent.
+        The A2A endpoint URL for the agent under test.
     agent_name : str or None
-        Which agent dataset to evaluate. None = run all agents sequentially.
+        Which dataset to evaluate. None = run all datasets sequentially.
     n_trials : int
         Number of evaluation trials per sample (for variance measurement).
     scorer_mode : str
@@ -121,22 +136,19 @@ def run_benchmark(
     hyperparameters : dict or None
         Optional hyperparameter grid for combinatorial evaluation.
     mode : str
-        "aice" to use AICEBenchmarker, "hr" to use HRBenchmarker.
+        "local" to use LocalBenchmarker, "aice" to use AICEBenchmarker.
     headers : dict or None
         Optional HTTP headers (e.g. Authorization) for the A2A endpoint.
     requires_token : bool
-        Whether this target requires token auth (BFF targets).
+        Whether this target requires token auth.
 
     Returns
     -------
     dict
         Mapping of agent_name -> benchmark result.
     """
-    # For hr mode, configure scorers to use Azure OpenAI as the judge LLM
-    judge_model = None
-    if mode == "hr":
-        deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
-        judge_model = f"azure:/{deployment}"
+    # For local mode, configure scorers to use the resolved judge model
+    judge_model = _resolve_judge_model() if mode == "local" else None
 
     # Select scorers
     if scorer_mode == "builtin":
@@ -148,23 +160,24 @@ def run_benchmark(
 
     logger.info("Using %d scorers (mode=%s)", len(scorers), scorer_mode)
 
-    # Determine which agents to evaluate
+    # Determine which datasets to evaluate
     if agent_name:
         agents_to_eval = [agent_name]
     else:
         agents_to_eval = list(ALL_DATASETS.keys())
 
     # Create predict function and benchmarker class based on mode
-    if mode == "hr":
+    if mode == "local":
         import uuid
-        from .hr_benchmarker.a2a_client import make_a2a_predict_fn, create_bff_thread
-        from .hr_benchmarker.benchmarker import HRBenchmarker as Benchmarker
+        from .benchmarker.a2a_client import make_a2a_predict_fn, create_graphql_thread
+        from .benchmarker.benchmarker import LocalBenchmarker as Benchmarker
 
         predict_fn = make_a2a_predict_fn(base_url=base_url, headers=headers)
 
-        # Build thread_factory: BFF targets need GraphQL, FA targets use UUID
+        # Build thread_factory: token-protected targets mint a thread via
+        # GraphQL; others use a random UUID as the contextId.
         if requires_token and headers:
-            thread_factory = lambda: create_bff_thread(base_url, headers)
+            thread_factory = lambda: create_graphql_thread(base_url, headers)
         else:
             thread_factory = lambda: str(uuid.uuid4())
     else:
@@ -177,13 +190,13 @@ def run_benchmark(
     results = {}
     for agent in agents_to_eval:
         logger.info("=" * 60)
-        logger.info("Evaluating agent: %s", agent)
+        logger.info("Evaluating dataset: %s", agent)
         logger.info("=" * 60)
 
         dataset = get_dataset(agent)
 
         # AICE doesn't support multi-turn — flatten to single-turn items
-        if mode != "hr":
+        if mode != "local":
             dataset = _flatten_multi_turn(dataset)
 
         start = time.monotonic()
@@ -205,7 +218,7 @@ def run_benchmark(
         results[agent] = result
 
         elapsed = time.monotonic() - start
-        logger.info("Agent %s completed in %.1fs", agent, elapsed)
+        logger.info("Dataset %s completed in %.1fs", agent, elapsed)
 
     return results
 
@@ -240,30 +253,30 @@ def print_summary(results: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run A2A benchmark evaluation for the HR Agent system"
+        description="Run A2A benchmark evaluation for an agent endpoint"
     )
     parser.add_argument(
         "--target",
         choices=list(TARGETS.keys()),
-        default="fa",
-        help=f"A2A endpoint target (default: fa). Available: {', '.join(TARGETS.keys())}",
+        default="direct",
+        help=f"A2A endpoint target (default: direct). Available: {', '.join(TARGETS.keys())}",
     )
     parser.add_argument(
         "--token",
         default=None,
-        help="Bearer token for BFF endpoints (SSO token)",
+        help="Bearer token for token-protected targets",
     )
     parser.add_argument(
         "--mode",
-        choices=["aice", "hr"],
-        default="aice",
-        help="Benchmarker to use: 'aice' (AICEBenchmarker, default) or 'hr' (HRBenchmarker, local MLflow)",
+        choices=["aice", "local"],
+        default="local",
+        help="Benchmarker to use: 'local' (LocalBenchmarker, default) or 'aice' (AICEBenchmarker)",
     )
     parser.add_argument(
         "--agent",
         choices=list(ALL_DATASETS.keys()),
         default=None,
-        help="Agent dataset to evaluate (default: all agents)",
+        help="Dataset to evaluate (default: all datasets)",
     )
     parser.add_argument(
         "--n-trials",
@@ -280,7 +293,7 @@ def main() -> int:
     parser.add_argument(
         "--experiment-name",
         default=None,
-        help="MLflow experiment name (default: a2a-hr-agent-benchmark-{target})",
+        help="MLflow experiment name (default: a2a-agent-benchmark-{target})",
     )
     parser.add_argument(
         "--base-url",
@@ -305,7 +318,7 @@ def main() -> int:
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    # Load .env from project root (for Azure OpenAI judge credentials in hr mode)
+    # Load .env from project root (for judge credentials in local mode)
     from dotenv import load_dotenv
     _dir = os.path.dirname(os.path.abspath(__file__))
     while _dir != os.path.dirname(_dir):
@@ -329,14 +342,14 @@ def main() -> int:
     if requires_token:
         if not args.token:
             logger.error(
-                "Target '%s' requires a Bearer token. Pass --token <sso-token>.",
+                "Target '%s' requires a Bearer token. Pass --token <token>.",
                 args.target,
             )
             return 1
         headers = {"Authorization": f"Bearer {args.token}"}
 
     # Default experiment name includes target
-    experiment_name = args.experiment_name or f"a2a-hr-agent-benchmark-{args.target}"
+    experiment_name = args.experiment_name or f"a2a-agent-benchmark-{args.target}"
 
     # Parse hyperparameters JSON if provided
     hyperparameters = None
