@@ -1,3 +1,7 @@
 .DS_Store
 secret.key
 scripts/
+
+# Internal design docs — kept locally, not tracked
+/docs/
+/chat-evals/docs/
