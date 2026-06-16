@@ -2,6 +2,9 @@
 secret.key
 scripts/
 
-# Internal design docs — kept locally, not tracked
-/docs/
+# Internal design docs — kept locally, not tracked (except the published files below)
+/docs/*
+!/docs/metrics.md
+!/docs/architecture1.md
+!/docs/architecture2.md
 /chat-evals/docs/
