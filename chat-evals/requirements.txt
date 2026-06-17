@@ -1,8 +1,0 @@
-mlflow[databricks]>=3.10.0
-nest-asyncio
-pyyaml
-requests
-pandas
-python-dotenv
-pysqlite3-binary
-# aice-benchmarker>=1.0.42   # optional: external benchmarker for --mode aice
