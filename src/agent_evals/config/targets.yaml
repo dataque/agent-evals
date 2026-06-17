@@ -1,0 +1,35 @@
+# System-under-test targets + judge configuration for the CLI.
+# Override with `agent-evals run --config <path>`.
+
+targets:
+  local:
+    transport: agui_sse
+    base_url: "http://localhost:8080/api/v1/bff/ai/agent/sse"
+    auth:
+      type: local_jwt          # mints an unsigned JWT for the backend's `local` profile
+      gpn: "TEST0001"
+      user_claim: "ubs_auth_gpn"
+    timeout_s: 120
+
+  dev:
+    transport: agui_sse
+    base_url: "https://REPLACE-ME/api/v1/bff/ai/agent/sse"
+    auth:
+      type: static            # paste a real SSO bearer token via env
+      token_env: "AGENT_EVALS_TOKEN"
+    timeout_s: 120
+
+# Judge backends (neutral interface). default applies to every judged metric;
+# per_metric overrides a specific one so backends can be A/B'd.
+judge:
+  default: azure_openai       # azure_openai | openai | mlflow | deepeval | heuristic
+  per_metric: {}
+  # e.g.
+  #   faithfulness: deepeval
+  #   safety: mlflow
+
+# Optional run-wide scorer config.
+scoring:
+  # latency_total_sla_ms: 8000
+  topic_scope: "HR and career: profile/skills management, job/role discovery, recruiter outreach, career guidance."
+  # persona: "<paste the orchestrator persona here or load from a file>"

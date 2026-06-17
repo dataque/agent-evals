@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "suggest_skills result",
+  "description": "Mirrors the frontend InferredSkillsCard result (TopAndAdditionalSkillsFormValues).",
+  "type": "object",
+  "required": ["top", "additional"],
+  "additionalProperties": true,
+  "properties": {
+    "top": { "type": "array", "items": { "$ref": "#/definitions/skillItem" } },
+    "additional": { "type": "array", "items": { "$ref": "#/definitions/skillItem" } }
+  },
+  "definitions": {
+    "skillItem": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "name": { "type": "string" },
+        "source": { "type": "string", "enum": ["AI_EXTRACTED", "AI_INFERRED", "MANUAL"] }
+      }
+    }
+  }
+}

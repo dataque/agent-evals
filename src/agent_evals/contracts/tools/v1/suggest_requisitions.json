@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "suggest_requisitions result",
+  "description": "Mirrors the frontend AIRoleMatchCard result ({ matches: RequisitionMatch[] }).",
+  "type": "object",
+  "required": ["matches"],
+  "additionalProperties": true,
+  "properties": {
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["requisition"],
+        "additionalProperties": true,
+        "properties": {
+          "matchScore": { "type": ["string", "number", "null"] },
+          "matchReasoning": { "type": ["string", "null"] },
+          "gapReasoning": { "type": ["string", "null"] },
+          "rerankerScore": { "type": ["number", "null"] },
+          "skills": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "requisition": {
+            "type": "object",
+            "required": ["requisitionId"],
+            "additionalProperties": true,
+            "properties": {
+              "requisitionId": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

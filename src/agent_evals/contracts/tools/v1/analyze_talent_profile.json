@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "analyze_talent_profile result",
+  "description": "Mirrors the frontend ProfileAnalysisCard result.",
+  "type": "object",
+  "required": ["talentProfile", "missingSections", "nextActions"],
+  "additionalProperties": true,
+  "properties": {
+    "talentProfile": { "type": "object", "additionalProperties": true },
+    "missingSections": { "type": "array", "items": { "type": "string" } },
+    "nextActions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title"],
+        "additionalProperties": true,
+        "properties": {
+          "title": { "type": "string" },
+          "tool": { "type": ["string", "null"] },
+          "priority": { "type": ["integer", "number", "null"] }
+        }
+      }
+    }
+  }
+}

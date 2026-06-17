@@ -2,9 +2,20 @@
 secret.key
 scripts/
 
-# Internal design docs — kept locally, not tracked (except the published files below)
-/docs/*
-!/docs/metrics.md
-!/docs/architecture1.md
-!/docs/architecture2.md
+# Internal design docs — kept locally, not tracked
+/docs/
 /chat-evals/docs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/
+venv/
+
+# Eval outputs
+eval-runs/
+*.transcript.json
