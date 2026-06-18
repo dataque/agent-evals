@@ -35,7 +35,7 @@ class AgUiSseTransport:
         encoding: str = "cl100k_base",
         connect_timeout_s: float = 15.0,
         persist_dir: str | None = None,
-        verify: bool = True,
+        verify: "bool | str" = True,  # True | False (insecure) | path to a CA bundle (.pem)
         http_transport: "httpx.BaseTransport | None" = None,
     ) -> None:
         self.url = url

@@ -29,11 +29,36 @@ LIVE_URL = os.getenv("AGENT_EVALS_LIVE_URL")
 pytestmark = pytest.mark.skipif(not LIVE_URL, reason="set AGENT_EVALS_LIVE_URL to run the live smoke test")
 
 
+def _resolve_verify():
+    """TLS config from env (for corporate / private-CA endpoints):
+      AGENT_EVALS_INSECURE=1       -> disable verification (dev only)
+      AGENT_EVALS_USE_TRUSTSTORE=1 -> use the OS trust store / macOS Keychain (recommended)
+      AGENT_EVALS_CA_BUNDLE=<path> -> verify against a custom CA .pem
+    """
+    if os.getenv("AGENT_EVALS_INSECURE", "").lower() in ("1", "true", "yes"):
+        return False
+    if os.getenv("AGENT_EVALS_USE_TRUSTSTORE", "").lower() in ("1", "true", "yes"):
+        import truststore  # pip install truststore
+
+        truststore.inject_into_ssl()
+    return os.getenv("AGENT_EVALS_CA_BUNDLE") or True
+
+
 def _session() -> Session:
     gpn = os.getenv("AGENT_EVALS_GPN", "TEST0001")
     token = os.getenv("AGENT_EVALS_TOKEN")
-    provider = StaticTokenProvider(token) if token else LocalJwtMinter(gpn)
-    transport = AgUiSseTransport(LIVE_URL, persist_dir=os.getenv("AGENT_EVALS_PERSIST"))
+    if token:
+        # a real/pre-made bearer token (e.g. SSO, or paste of the FE dev-token)
+        provider = StaticTokenProvider(token)
+    else:
+        # no-SSO dev access: mint the unsigned token the dev-profile backend trusts.
+        # scope is REQUIRED by the chat SSE endpoint; roles drive feature/data gating.
+        roles = [r.strip() for r in os.getenv("AGENT_EVALS_ROLES", "GEB_HR,HR_WITH_HR,ADMIN").split(",") if r.strip()]
+        scopes = [s.strip() for s in os.getenv("AGENT_EVALS_SCOPE", "readwrite.api.bff").split(",") if s.strip()]
+        provider = LocalJwtMinter(gpn, roles=roles, scopes=scopes)
+    transport = AgUiSseTransport(
+        LIVE_URL, persist_dir=os.getenv("AGENT_EVALS_PERSIST"), verify=_resolve_verify()
+    )
     return Session(transport, Identity(user_id=gpn, token_provider=provider), timeout_s=120)
 
 
@@ -62,6 +87,9 @@ def test_live_multi_turn_session_accumulates():
     n_after = len(session.state.messages)
     r2 = session.ask("Add Python and Docker to my top skills")
 
+    # both turns must actually succeed (don't let an errored run pass silently)
+    assert r1.completion_status == CompletionStatus.COMPLETED, r1.error
+    assert r2.completion_status == CompletionStatus.COMPLETED, r2.error
     assert r1.turn_index == 0 and r2.turn_index == 1
     assert session.state.thread_id  # stable across turns
     assert len(session.state.messages) > n_after  # history grew

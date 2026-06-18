@@ -2,22 +2,37 @@
 # Override with `agent-evals run --config <path>`.
 
 targets:
+  # Backend running under its no-auth dev profile in the SAME pod as the eval.
   local:
     transport: agui_sse
     base_url: "http://localhost:8080/api/v1/bff/ai/agent/sse"
     auth:
-      type: local_jwt          # mints an unsigned JWT for the backend's `local` profile
-      gpn: "TEST0001"
+      type: local_jwt          # no-SSO dev access: self-asserted unsigned JWT (backend dev profile)
+      gpn: "TEST0001"          # use a GPN that exists in the dev datastore for non-degraded data
+      roles: ["GEB_HR", "HR_WITH_HR", "ADMIN"]
+      scopes: ["readwrite.api.bff"]   # REQUIRED by the chat SSE endpoint
       user_claim: "ubs_auth_gpn"
     timeout_s: 120
 
-  dev:
+  # Cloud / devpod: eval runs remotely and reaches the backend over the forwarded
+  # HTTPS URL. Same no-SSO token (NO interactive Microsoft login).
+  devpod:
     transport: agui_sse
-    base_url: "https://REPLACE-ME/api/v1/bff/ai/agent/sse"
+    base_url: "https://REPLACE-ME-devpod-8080/api/v1/bff/ai/agent/sse"   # forwarded devpod port 8080
     auth:
-      type: static            # paste a real SSO bearer token via env
-      token_env: "AGENT_EVALS_TOKEN"
+      type: local_jwt
+      gpn: "REPLACE-ME-GPN"
+      roles: ["GEB_HR", "HR_WITH_HR", "ADMIN"]
+      scopes: ["readwrite.api.bff"]
+      # Alternative for a real SSO environment:
+      #   type: static
+      #   token_env: "AGENT_EVALS_TOKEN"
     timeout_s: 120
+    # TLS for corporate / private-CA endpoints. Pick ONE:
+    tls:
+      use_truststore: true    # use the OS trust store / Keychain — recommended; needs `pip install truststore`
+      # ca_bundle: "/path/to/corp-root-ca.pem"   # verify against an explicit CA bundle
+      # insecure: false                          # disable TLS verification (dev only; NOT recommended)
 
 # Judge backends (neutral interface). default applies to every judged metric;
 # per_metric overrides a specific one so backends can be A/B'd.
