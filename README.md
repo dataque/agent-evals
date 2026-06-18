@@ -54,7 +54,7 @@ agent-evals list-metrics
 
 # Run a suite against a target (see src/agent_evals/config/targets.yaml).
 # The `local` target mints an unsigned JWT for the backend's `local` profile.
-agent-evals run --target local --suite hr --metrics level1 --judge azure_openai --sink jsonl
+agent-evals run --target local --suite hr --metrics primary --judge azure_openai --sink jsonl
 
 # Deterministic/operational metrics only (no LLM judge needed):
 agent-evals run --target local --suite hr --metrics deterministic
@@ -67,7 +67,7 @@ agent-evals run --target local --suite ./my_suite.yaml \
 agent-evals ingest-feedback --input feedback.jsonl --sink jsonl
 ```
 
-`--metrics` accepts `all`, `level1` (#1–15), `level2` (#16–24), a family
+`--metrics` accepts `all`, `primary` (#1–15), `secondary` (#16–24), a family
 (`deterministic`/`judge`/`operational`/`probe`), or a comma-separated list of
 metric ids. Judge backends: `azure_openai` (default), `openai`, `mlflow`,
 `deepeval`, `heuristic` (no LLM). Per-metric judge selection lives under `judge:`

@@ -74,7 +74,7 @@ def build_registry() -> dict[str, Scorer]:
 def get_scorers(selection: str | Iterable[str] = "all") -> list[Scorer]:
     """Resolve a scorer selection to instances.
 
-    ``selection``: ``"all"``; ``"level1"`` (#1–15) / ``"level2"`` (#16–24); a family
+    ``selection``: ``"all"``; ``"primary"`` (#1–15) / ``"secondary"`` (#16–24); a family
     (``deterministic``/``operational``/``judge``/``probe``); or a comma-separated
     string / iterable of metric ids.
     """
@@ -83,9 +83,9 @@ def get_scorers(selection: str | Iterable[str] = "all") -> list[Scorer]:
 
     if selection in (None, "all"):
         return instances
-    if selection == "level1":
+    if selection == "primary":
         return [s for s in instances if 1 <= s.spec.number <= 15]
-    if selection == "level2":
+    if selection == "secondary":
         return [s for s in instances if 16 <= s.spec.number <= 24]
     if selection in ("deterministic", "operational", "judge", "probe"):
         return [s for s in instances if s.spec.family.value == selection]

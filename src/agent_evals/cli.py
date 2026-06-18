@@ -190,7 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--target", default="local", help="target name from the config")
     r.add_argument("--suite", default="hr", help="bundled suite name or path to a suite file/dir")
     r.add_argument("--metrics", default="all",
-                   help="all | level1 | level2 | <family> | comma-separated metric ids")
+                   help="all | primary | secondary | <family> | comma-separated metric ids")
     r.add_argument("--sink", choices=["jsonl", "mlflow"], default="jsonl")
     r.add_argument("--judge", default=None, help="override the default judge backend")
     r.add_argument("--config", default=None, help="path to a targets.yaml (defaults to bundled)")
