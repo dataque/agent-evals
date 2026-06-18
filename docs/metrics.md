@@ -12,7 +12,7 @@
 
 ---
 
-## 3. Tier 1 — Must-have agent metrics
+## 3. Primary — Must-have agent metrics
 
 | # | Metric | Also known as | Description | S/M-turn | Golden? | Judge? | Cost | MLflow path |
 |---|---|---|---|---|---|---|---|---|
@@ -31,7 +31,7 @@
 
 ---
 
-## 4. Tier 1 (continued) — Operational must-haves
+## 4. Primary (continued) — Operational must-haves
 
 | # | Metric | Also known as | Description | S/M-turn | Golden? | Judge? | Cost | MLflow path |
 |---|---|---|---|---|---|---|---|---|
@@ -41,7 +41,7 @@
 
 ---
 
-## 5. Tier 2 — Nice-to-have agent + ops metrics
+## 5. Secondary — Nice-to-have agent + ops metrics
 
 | # | Metric | Also known as | Description | S/M-turn | Golden? | Judge? | Cost | MLflow path |
 |---|---|---|---|---|---|---|---|---|

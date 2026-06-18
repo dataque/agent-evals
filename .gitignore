@@ -2,10 +2,6 @@
 secret.key
 scripts/
 
-# Internal design docs — kept locally, not tracked
-/docs/
-/chat-evals/docs/
-
 # Python
 __pycache__/
 *.py[cod]
