@@ -57,7 +57,7 @@
 
 ---
 
-## 6. Tier 3 — Not applicable (no retriever)
+## 6. Excluded — Not applicable (no retriever)
 
 `backend` has no vector store, no retrieval-augmented generation layer. Tool results are CRUD against Cosmos DB and HR domain APIs.
 
