@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
@@ -30,7 +31,16 @@ class TokenProvider(Protocol):
 
 
 class LocalJwtMinter:
-    """Mint an unsigned JWT carrying ``user_claim=gpn`` for local-profile runs."""
+    """Mint an unsigned (``alg=none``) JWT that a backend running under its
+    no-auth dev profile self-trusts (it parses the token without verifying it).
+
+    The token shape mirrors the frontend's dev-token generator so the same
+    identity contract holds: ``user_claim`` → userId, ``roles`` → ``ROLE_*``
+    authorities, and the space-delimited ``scope`` → ``SCOPE_*`` authorities.
+    NOTE: protected endpoints (e.g. the chat SSE endpoint) typically require a
+    specific scope — pass it via ``scopes`` (configured per target), otherwise
+    the call is authenticated but not authorized.
+    """
 
     def __init__(
         self,
@@ -39,24 +49,33 @@ class LocalJwtMinter:
         roles: list[str] | None = None,
         scopes: list[str] | None = None,
         user_claim: str = DEFAULT_USER_CLAIM,
+        subject: str | None = None,
+        ttl_seconds: int = 365 * 24 * 60 * 60,
         extra_claims: dict | None = None,
     ) -> None:
         self.gpn = gpn
         self.roles = list(roles or [])
         self.scopes = list(scopes or [])
         self.user_claim = user_claim
+        self.subject = subject or gpn
+        self.ttl_seconds = ttl_seconds
         self.extra_claims = dict(extra_claims or {})
 
     def get_token(self) -> str:
         header = _b64url(json.dumps({"alg": "none", "typ": "JWT"}).encode())
+        now = int(time.time())
         payload = {
-            self.user_claim: self.gpn,
-            "roles": self.roles,
-            "scope": " ".join(self.scopes),
+            self.user_claim: self.gpn,          # userId claim the backend reads
+            "sub": self.subject,
+            "roles": self.roles,                 # -> ROLE_* authorities
+            "scope": " ".join(self.scopes),      # space-delimited -> SCOPE_* authorities
+            "iat": now,
+            "nbf": now,
+            "exp": now + self.ttl_seconds,
             **self.extra_claims,
         }
         body = _b64url(json.dumps(payload).encode())
-        return f"{header}.{body}.sig"  # 3 segments; signature is ignored locally
+        return f"{header}.{body}.dev"  # 3 segments; the signature is ignored
 
 
 class StaticTokenProvider:

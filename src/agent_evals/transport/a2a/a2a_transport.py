@@ -109,7 +109,8 @@ def _usage_from_metadata(md: dict, ns: str) -> TokenUsage:
 
 class A2ATransport:
     def __init__(self, url: str, *, metadata_ns: str = "hr-agent", headers: dict | None = None,
-                 http_transport: "httpx.BaseTransport | None" = None, verify: bool = True) -> None:
+                 http_transport: "httpx.BaseTransport | None" = None,
+                 verify: "bool | str" = True) -> None:
         self.url = url
         self.metadata_ns = metadata_ns
         self.headers = headers or {}

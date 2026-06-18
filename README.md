@@ -54,7 +54,7 @@ agent-evals list-metrics
 
 # Run a suite against a target (see src/agent_evals/config/targets.yaml).
 # The `local` target mints an unsigned JWT for the backend's `local` profile.
-agent-evals run --target local --suite hr --metrics tier1 --judge azure_openai --sink jsonl
+agent-evals run --target local --suite hr --metrics primary --judge azure_openai --sink jsonl
 
 # Deterministic/operational metrics only (no LLM judge needed):
 agent-evals run --target local --suite hr --metrics deterministic
@@ -67,7 +67,7 @@ agent-evals run --target local --suite ./my_suite.yaml \
 agent-evals ingest-feedback --input feedback.jsonl --sink jsonl
 ```
 
-`--metrics` accepts `all`, `tier1` (#1–15), `tier2` (#16–24), a family
+`--metrics` accepts `all`, `primary` (#1–15), `secondary` (#16–24), a family
 (`deterministic`/`judge`/`operational`/`probe`), or a comma-separated list of
 metric ids. Judge backends: `azure_openai` (default), `openai`, `mlflow`,
 `deepeval`, `heuristic` (no LLM). Per-metric judge selection lives under `judge:`
@@ -86,6 +86,15 @@ AGENT_EVALS_GPN=TEST0001 pytest tests/test_live_smoke.py -v
 
 For non-local environments, set `auth.type: static` in the target and provide a
 real bearer token via the configured env var.
+
+**TLS (corporate / private-CA endpoints).** If the backend's certificate chains
+to an internal CA, default verification fails (`CERTIFICATE_VERIFY_FAILED`). Fix
+it without disabling security:
+- *CLI*: add a `tls:` block to the target — `use_truststore: true` (uses the OS
+  trust store / macOS Keychain; `pip install truststore`), or `ca_bundle: <path>`,
+  or `insecure: true` (dev only).
+- *Smoke test*: set `AGENT_EVALS_USE_TRUSTSTORE=1` (recommended), or
+  `AGENT_EVALS_CA_BUNDLE=/path/to/ca.pem`, or `AGENT_EVALS_INSECURE=1`.
 
 ### Viewing results
 
@@ -132,7 +141,7 @@ In the UI, open the **`agent-evals`** experiment → your run (`<suite>-<target>
 
 ## Status
 
-All 24 in-scope metrics from `docs/metrics.md` are implemented (Tier-3 retrieval
+All 24 in-scope metrics from `docs/metrics.md` are implemented (Level-3 retrieval
 metrics are N/A — no retriever). Test suite runs fully offline (the transport is
 verified against a mock backend reproducing the exact AG-UI/SSE wire contract);
 the live smoke test runs against a real backend when `AGENT_EVALS_LIVE_URL` is set.

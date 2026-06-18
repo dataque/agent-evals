@@ -1,4 +1,4 @@
-"""Unit tests for the Tier-1 deterministic + operational + probe scorers."""
+"""Unit tests for the Level-1 deterministic + operational + probe scorers."""
 
 from __future__ import annotations
 

@@ -43,7 +43,22 @@ def _build_transport(target: dict, persist_dir: str | None) -> AgUiSseTransport:
     transport = target.get("transport", "agui_sse")
     if transport != "agui_sse":
         raise SystemExit(f"unsupported transport: {transport!r} (only agui_sse in v1)")
-    return AgUiSseTransport(target["base_url"], persist_dir=persist_dir)
+    tls = target.get("tls", {}) or {}
+    if tls.get("use_truststore"):
+        try:
+            import truststore
+
+            truststore.inject_into_ssl()
+        except Exception as exc:  # missing extra
+            raise SystemExit("tls.use_truststore set but truststore is unavailable; "
+                             "run `pip install truststore`") from exc
+    if tls.get("insecure"):
+        verify: bool | str = False
+    elif tls.get("ca_bundle"):
+        verify = tls["ca_bundle"]
+    else:
+        verify = True
+    return AgUiSseTransport(target["base_url"], persist_dir=persist_dir, verify=verify)
 
 
 def _build_identity(target: dict) -> Identity:
@@ -51,9 +66,17 @@ def _build_identity(target: dict) -> Identity:
     atype = auth.get("type", "local_jwt")
     if atype == "local_jwt":
         gpn = auth.get("gpn", "TEST0001")
+        scopes = auth.get("scopes")
+        if scopes is None and auth.get("scope"):
+            scopes = [auth["scope"]]
         return Identity(
             user_id=gpn,
-            token_provider=LocalJwtMinter(gpn, user_claim=auth.get("user_claim", "ubs_auth_gpn")),
+            token_provider=LocalJwtMinter(
+                gpn,
+                user_claim=auth.get("user_claim", "ubs_auth_gpn"),
+                roles=auth.get("roles"),
+                scopes=scopes,
+            ),
         )
     if atype == "static":
         env = auth.get("token_env", "AGENT_EVALS_TOKEN")
@@ -167,7 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--target", default="local", help="target name from the config")
     r.add_argument("--suite", default="hr", help="bundled suite name or path to a suite file/dir")
     r.add_argument("--metrics", default="all",
-                   help="all | tier1 | tier2 | <family> | comma-separated metric ids")
+                   help="all | primary | secondary | <family> | comma-separated metric ids")
     r.add_argument("--sink", choices=["jsonl", "mlflow"], default="jsonl")
     r.add_argument("--judge", default=None, help="override the default judge backend")
     r.add_argument("--config", default=None, help="path to a targets.yaml (defaults to bundled)")
