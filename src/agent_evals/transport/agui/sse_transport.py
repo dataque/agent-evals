@@ -12,6 +12,7 @@ import json
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from httpx_sse import connect_sse
@@ -36,6 +37,8 @@ class AgUiSseTransport:
         connect_timeout_s: float = 15.0,
         persist_dir: str | None = None,
         verify: "bool | str" = True,  # True | False (insecure) | path to a CA bundle (.pem)
+        create_thread: bool = True,
+        graphql_url: str | None = None,
         http_transport: "httpx.BaseTransport | None" = None,
     ) -> None:
         self.url = url
@@ -44,12 +47,32 @@ class AgUiSseTransport:
         self.connect_timeout_s = connect_timeout_s
         self.persist_dir = Path(persist_dir) if persist_dir else None
         self.verify = verify
+        # The BFF loads the thread by (threadId, userId) on every run and throws
+        # if it is missing. When True, create one via the GraphQL `createThread`
+        # mutation before the first turn. Set False for backends that accept an
+        # arbitrary threadId; ``graphql_url`` overrides the derived endpoint.
+        self.create_thread = create_thread
+        self.graphql_url = graphql_url
         # Optional injected httpx transport (e.g. MockTransport for tests,
         # or a retrying/proxy transport in production).
         self.http_transport = http_transport
 
     # ------------------------------------------------------------------
     def run_turn(self, turn: TurnRequest, session: SessionState) -> RunRecord:
+        try:
+            token = turn.identity.token_provider.get_token()
+        except Exception as exc:  # token providers can fail (refresh, etc.)
+            raise TransportError(f"token provider failed: {exc}") from exc
+
+        # The BFF requires the thread to exist before the agent run; create it on
+        # the first turn (later turns reuse the same thread).
+        thread_error: str | None = None
+        if self.create_thread and session.turn_index == 0:
+            try:
+                session.thread_id = self._create_thread(token)
+            except Exception as exc:
+                thread_error = f"createThread failed: {type(exc).__name__}: {exc}"
+
         run_id = str(uuid.uuid4())
         user_msg_id = str(uuid.uuid4())
         body = {
@@ -64,53 +87,50 @@ class AgUiSseTransport:
             "state": session.last_state or {},
             "forwardedProps": turn.forwarded_props or {},
         }
-        try:
-            token = turn.identity.token_provider.get_token()
-        except Exception as exc:  # token providers can fail (refresh, etc.)
-            raise TransportError(f"token provider failed: {exc}") from exc
         headers = {"Authorization": f"Bearer {token}", **self.headers}
 
         events = []
         t0 = time.perf_counter()
         aborted_timeout = False
-        transport_error: str | None = None
+        transport_error: str | None = thread_error
         timeout = httpx.Timeout(turn.timeout_s, connect=self.connect_timeout_s)
         if self.http_transport is not None:
             client_kwargs = {"timeout": timeout, "transport": self.http_transport}
         else:
             client_kwargs = {"timeout": timeout, "verify": self.verify}
 
-        try:
-            with httpx.Client(**client_kwargs) as client:
-                with connect_sse(client, "POST", self.url, json=body, headers=headers) as es:
-                    for sse in es.iter_sse():
-                        if not sse.data:
-                            continue
-                        raw_txt = sse.data.lstrip()  # backend prefixes each payload with a space
-                        try:
-                            obj = json.loads(raw_txt)
-                        except Exception:
-                            continue  # skip heartbeats / non-JSON comments
-                        if not isinstance(obj, dict):
-                            continue
-                        ev = parse_event(
-                            obj,
-                            seq=len(events),
-                            arrival_ms=(time.perf_counter() - t0) * 1000.0,
-                            arrival_wall=time.time(),
-                        )
-                        events.append(ev)
-                        if ev.type == ET.RUN_FINISHED:
-                            break
-                        if (time.perf_counter() - t0) > turn.timeout_s:
-                            aborted_timeout = True
-                            break
-        except httpx.HTTPStatusError as exc:
-            transport_error = f"HTTP {exc.response.status_code}"
-        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.PoolTimeout):
-            aborted_timeout = True
-        except Exception as exc:
-            transport_error = f"{type(exc).__name__}: {exc}"
+        if transport_error is None:
+            try:
+                with httpx.Client(**client_kwargs) as client:
+                    with connect_sse(client, "POST", self.url, json=body, headers=headers) as es:
+                        for sse in es.iter_sse():
+                            if not sse.data:
+                                continue
+                            raw_txt = sse.data.lstrip()  # backend prefixes each payload with a space
+                            try:
+                                obj = json.loads(raw_txt)
+                            except Exception:
+                                continue  # skip heartbeats / non-JSON comments
+                            if not isinstance(obj, dict):
+                                continue
+                            ev = parse_event(
+                                obj,
+                                seq=len(events),
+                                arrival_ms=(time.perf_counter() - t0) * 1000.0,
+                                arrival_wall=time.time(),
+                            )
+                            events.append(ev)
+                            if ev.type == ET.RUN_FINISHED:
+                                break
+                            if (time.perf_counter() - t0) > turn.timeout_s:
+                                aborted_timeout = True
+                                break
+            except httpx.HTTPStatusError as exc:
+                transport_error = f"HTTP {exc.response.status_code}"
+            except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.PoolTimeout):
+                aborted_timeout = True
+            except Exception as exc:
+                transport_error = f"{type(exc).__name__}: {exc}"
 
         reduced = reduce_events(events, aborted_timeout=aborted_timeout)
         timing = derive_timing(
@@ -166,6 +186,37 @@ class AgUiSseTransport:
             session.last_state = reduced.final_state
         session.turn_index += 1
         return rec
+
+    # ------------------------------------------------------------------
+    def _graphql_url(self) -> str:
+        if self.graphql_url:
+            return self.graphql_url
+        if "/api/" in self.url:  # strip the API path, keep any gateway base path
+            return self.url.split("/api/", 1)[0] + "/graphql"
+        parts = urlsplit(self.url)
+        return f"{parts.scheme}://{parts.netloc}/graphql"
+
+    def _create_thread(self, token: str) -> str:
+        """Create a thread via the BFF GraphQL endpoint and return its id."""
+        mutation = "mutation CreateThread { createThread { id } }"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            **self.headers,
+        }
+        timeout = httpx.Timeout(self.connect_timeout_s + 30.0, connect=self.connect_timeout_s)
+        if self.http_transport is not None:
+            client_kwargs = {"timeout": timeout, "transport": self.http_transport}
+        else:
+            client_kwargs = {"timeout": timeout, "verify": self.verify}
+        with httpx.Client(**client_kwargs) as client:
+            resp = client.post(self._graphql_url(), json={"query": mutation}, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+        thread_id = (((data or {}).get("data") or {}).get("createThread") or {}).get("id")
+        if not thread_id:
+            raise TransportError(f"createThread returned no id (response: {data})")
+        return thread_id
 
     # ------------------------------------------------------------------
     def _persist(self, events: list, run_id: str) -> str | None:

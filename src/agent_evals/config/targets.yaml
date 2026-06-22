@@ -1,5 +1,10 @@
 # System-under-test targets + judge configuration for the CLI.
 # Override with `agent-evals run --config <path>`.
+#
+# The BFF loads the chat thread on every run and errors if it is missing, so the
+# harness creates one via the GraphQL `createThread` mutation before the first
+# turn (`create_thread: true`, the default). Set `create_thread: false` (and/or
+# `graphql_url: <url>`) for a backend that accepts an arbitrary threadId.
 
 targets:
   # Backend running under its no-auth dev profile in the SAME pod as the eval.

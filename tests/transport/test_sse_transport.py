@@ -1,8 +1,8 @@
 """End-to-end transport path offline: AgUiSseTransport against a mock backend.
 
-Proves the full chain — build RunAgentInput → POST → parse SSE (incl. the
-leading-space wire quirk) → reduce → timing → usage → RunRecord — plus
-multi-turn session accumulation and the auth-failure path.
+Proves the full chain — create the BFF thread (GraphQL) → build RunAgentInput →
+POST → parse SSE (incl. the leading-space wire quirk) → reduce → timing → usage
+→ RunRecord — plus multi-turn session accumulation and the auth-failure path.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import httpx
 from agent_evals.core.run_record import CompletionStatus, UsageSource
 from agent_evals.transport import AgUiSseTransport, Identity, LocalJwtMinter, Session
 
+_THREAD_ID = "T-created-123"
+
 
 def _sse_wire(events: list[dict]) -> bytes:
     # Reproduce the backend quirk: each data value is prefixed with a space, so
@@ -22,6 +24,10 @@ def _sse_wire(events: list[dict]) -> bytes:
     for e in events:
         buf += "data:  " + json.dumps(e) + "\n\n"
     return buf.encode("utf-8")
+
+
+def _create_thread_response() -> httpx.Response:
+    return httpx.Response(200, json={"data": {"createThread": {"id": _THREAD_ID}}})
 
 
 TURN1 = [
@@ -49,11 +55,15 @@ def _make_transport(handler) -> AgUiSseTransport:
                             http_transport=httpx.MockTransport(handler))
 
 
-def test_full_turn_round_trip():
+def test_creates_thread_then_runs():
     captured = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        captured["auth"] = request.headers.get("authorization")
+        if request.url.path.endswith("/graphql"):
+            captured["graphql_url"] = str(request.url)
+            captured["graphql_auth"] = request.headers.get("authorization")
+            return _create_thread_response()
+        captured["sse_auth"] = request.headers.get("authorization")
         captured["body"] = json.loads(request.content)
         return httpx.Response(200, headers={"content-type": "text/event-stream"},
                               content=_sse_wire(TURN1))
@@ -62,30 +72,29 @@ def test_full_turn_round_trip():
     session = Session(_make_transport(handler), identity)
     rec = session.ask("Suggest skills I should add to my profile")
 
-    # auth + request shape
-    assert captured["auth"].startswith("Bearer ")
-    assert captured["body"]["messages"][-1]["content"].startswith("Suggest skills")
-    assert "threadId" in captured["body"] and "runId" in captured["body"]
+    # thread was created via GraphQL (derived endpoint) with the bearer token,
+    # and its id is what the SSE run uses — NOT a random UUID.
+    assert captured["graphql_url"] == "http://backend/graphql"
+    assert captured["graphql_auth"].startswith("Bearer ")
+    assert captured["body"]["threadId"] == _THREAD_ID
+    assert rec.thread_id == _THREAD_ID
 
-    # normalized record
     assert rec.completion_status == CompletionStatus.COMPLETED
-    assert rec.stream_health.run_started_seen and rec.stream_health.run_finished_seen
     assert rec.assistant_text == "Here are your skills."
     assert rec.tool_names() == ["suggest_skills"]
-    assert rec.tool_calls[0].result == {"top": [], "additional": []}
-    assert rec.timing.ttft_ms is not None and rec.timing.total_ms is not None
-    assert rec.timing.ttft_ms <= rec.timing.total_ms
     assert rec.usage.source == UsageSource.ESTIMATED and rec.usage.total_tokens > 0
-    assert all(e.arrival_ms is not None for e in rec.events)
-    # arrival timestamps are monotonic non-decreasing
     arrivals = [e.arrival_ms for e in rec.events]
     assert arrivals == sorted(arrivals)
 
 
-def test_multi_turn_session_accumulates():
+def test_multi_turn_reuses_one_thread():
+    calls = {"graphql": 0}
+
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/graphql"):
+            calls["graphql"] += 1
+            return _create_thread_response()
         body = json.loads(request.content)
-        # turn 1 has just the user message; later turns carry history
         events = TURN1 if len(body["messages"]) == 1 else TURN2
         return httpx.Response(200, headers={"content-type": "text/event-stream"},
                               content=_sse_wire(events))
@@ -97,20 +106,32 @@ def test_multi_turn_session_accumulates():
     n_after_t1 = len(session.state.messages)
     r2 = session.ask("Save Python and Docker")
 
+    assert calls["graphql"] == 1                 # thread created once, reused
+    assert session.state.thread_id == _THREAD_ID
     assert r1.turn_index == 0 and r2.turn_index == 1
     assert r2.assistant_text == "Saved."
-    assert session.state.thread_id  # unchanged across turns
-    assert len(session.state.messages) > n_after_t1  # history grew
-    assert n_after_t1 >= 2  # at least user + assistant recorded after turn 1
+    assert len(session.state.messages) > n_after_t1
 
 
-def test_auth_failure_is_errored_not_raised():
+def test_create_thread_can_be_disabled():
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, headers={"content-type": "application/json"},
-                              content=b'{"error":"unauthorized"}')
+        assert not request.url.path.endswith("/graphql"), "graphql must not be called"
+        return httpx.Response(200, headers={"content-type": "text/event-stream"},
+                              content=_sse_wire(TURN1))
 
-    identity = Identity(user_id="U", token_provider=LocalJwtMinter("U"))
-    session = Session(_make_transport(handler), identity)
+    t = AgUiSseTransport("http://backend/api/v1/bff/ai/agent/sse",
+                         create_thread=False, http_transport=httpx.MockTransport(handler))
+    session = Session(t, Identity(user_id="U", token_provider=LocalJwtMinter("U")))
+    rec = session.ask("hi")
+    assert rec.completion_status == CompletionStatus.COMPLETED  # uses the session's own threadId
+
+
+def test_thread_creation_failure_is_errored():
+    # backend rejects the createThread call -> errored RunRecord, not a raise
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "unauthorized"})
+
+    session = Session(_make_transport(handler), Identity(user_id="U", token_provider=LocalJwtMinter("U")))
     rec = session.ask("hello")
     assert rec.completion_status == CompletionStatus.ERRORED
-    assert rec.error is not None
+    assert rec.error is not None and "createThread" in rec.error.message

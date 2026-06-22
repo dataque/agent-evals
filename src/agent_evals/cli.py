@@ -58,7 +58,13 @@ def _build_transport(target: dict, persist_dir: str | None) -> AgUiSseTransport:
         verify = tls["ca_bundle"]
     else:
         verify = True
-    return AgUiSseTransport(target["base_url"], persist_dir=persist_dir, verify=verify)
+    return AgUiSseTransport(
+        target["base_url"],
+        persist_dir=persist_dir,
+        verify=verify,
+        create_thread=target.get("create_thread", True),
+        graphql_url=target.get("graphql_url"),
+    )
 
 
 def _build_identity(target: dict) -> Identity:
