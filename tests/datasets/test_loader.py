@@ -16,7 +16,8 @@ def test_load_bundled_hr_suite():
     assert multi.as_turns()[2].expectations.remembered_facts == ["Java", "React"]
 
     assert by_id["out-of-scope-refusal"].expectations.must_refuse is True
-    assert by_id["cross-user-isolation-probe"].expectations.other_user_id == "X9999"
+    assert by_id["cross-user-isolation-probe"].expectations.other_user_id == "00009999"
+    assert by_id["cross-user-isolation-probe"].expectations.must_refuse is True
     assert by_id["suggest-skills"].expectations.expected_tool_calls == ["suggest_skills"]
     # metadata stamped by the loader
     assert all(c.metadata.get("suite") == "hr" for c in cases)
