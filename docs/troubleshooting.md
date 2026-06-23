@@ -1,7 +1,13 @@
-# Troubleshooting: the judge can't reach Azure (TLS / CA)
+# Troubleshooting: the judge can't reach Azure
 
-When `--judge azure_openai` fails on every call and `scores.jsonl` shows
-`Connection error` / `SSL: CERTIFICATE_VERIFY_FAILED — unable to get local issuer
+`--judge azure_openai` failing on every call is almost always the judge unable to
+reach the Azure endpoint, in two layers you hit in order: a **TLS/CA** failure
+first, then — once that's fixed — a **network-policy `403`**. Both are
+environmental, not key/deployment bugs.
+
+## TLS / CA: `Connection error` / `CERTIFICATE_VERIFY_FAILED`
+
+When `scores.jsonl` shows `Connection error` / `SSL: CERTIFICATE_VERIFY_FAILED — unable to get local issuer
 certificate`, the certificate presented to the judge is signed by a CA that is in
 **neither** certifi **nor** the pod's OS trust store. That's the fingerprint of a
 **corporate TLS-intercepting proxy** (it substitutes its own cert, signed by an
@@ -84,8 +90,60 @@ keytool -list -rfc -keystore "$JAVA_HOME/lib/security/cacerts" -storepass change
 export SSL_CERT_FILE=/tmp/corp-cas.pem
 ```
 
-Re-run the Python check above; once TLS passes you'll either succeed or see the
-underlying HTTP error (resolve that next).
+Re-run the Python check above; once TLS passes you'll either succeed or hit the
+network policy below.
+
+`SSL_CERT_FILE` is the one that matters: the judge goes through the OpenAI SDK →
+httpx, which honors `SSL_CERT_FILE` / `SSL_CERT_DIR` but **not**
+`REQUESTS_CA_BUNDLE` (that's `requests`-only — harmless to set to the same path,
+but it won't fix the judge). And don't run a target with `tls.use_truststore: true`
+while relying on `SSL_CERT_FILE`: truststore injection patches SSL to the OS store
+and overrides it — use `--target local`.
+
+## Then: `403 Public access is disabled. Please configure private endpoint`
+
+Once TLS passes you may get a `403` from Azure. This is a **network policy**, not
+your key: the resource has **public network access disabled** and only accepts
+traffic over its **Private Endpoint (Private Link)**. The backend reaches the
+model because it hits the **private** endpoint (private DNS → a `10.x` IP); the
+judge is going out via the corp proxy to the **public** endpoint (which is why it
+needed the corp CA above), and public is blocked. The working path exists from
+this pod — the fix is to put the judge on it.
+
+Diagnose, then mirror the backend:
+
+```bash
+H=<azure-host>   # your AZURE_OPENAI_ENDPOINT host
+
+# (a) Does the name resolve to a PRIVATE ip from this pod?
+getent hosts $H                       # 10.x / 100.x => Private Link in DNS; public => not
+
+# (b) What proxy is the judge using right now?
+env | grep -iE 'https?_proxy|no_proxy'
+
+# (c) How does the BACKEND reach it? (this is the path to copy)
+tr '\0' '\n' < /proc/$(pgrep -af 'java|spring' | awk 'NR==1{print $1}')/environ \
+  | grep -iE 'PROXY|NO_PROXY|AZURE_OPENAI|OPENAI_'
+```
+
+Fix, by what the diagnosis shows:
+
+- **FQDN resolves to a private `10.x` and you're proxying it** → bypass the proxy
+  for Azure so the judge connects straight to the private endpoint:
+  ```bash
+  export NO_PROXY="${NO_PROXY},.openai.azure.com,$H"
+  # also unset HTTPS_PROXY/HTTP_PROXY if they were forcing the Azure host through the proxy
+  ```
+- **Backend uses a specific proxy (not the MITM one)** → point the judge at it:
+  `export HTTPS_PROXY=<the backend's proxy>` (and copy its `NO_PROXY`).
+- **Backend points at a different endpoint host** (a `…privatelink.openai.azure.com`
+  FQDN in its env) → set `AZURE_OPENAI_ENDPOINT` to match.
+
+Rule of thumb: whatever `/proc/<backend-pid>/environ` shows for
+`PROXY` / `NO_PROXY` / `AZURE_OPENAI_*`, replicate it — the backend proves that
+route works from this pod. If the private endpoint genuinely isn't reachable from
+your shell, point the judge at a **public-access** resource (another dev Azure
+OpenAI, or a personal key via `--judge openai`), or use the offline judge below.
 
 ## Keep moving without the LLM
 

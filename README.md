@@ -110,9 +110,9 @@ it without disabling security:
 ### Troubleshooting
 
 If `--judge azure_openai` fails on every call (`scores.jsonl` shows `Connection
-error` or `CERTIFICATE_VERIFY_FAILED`), see
-[`docs/troubleshooting.md`](docs/troubleshooting.md) to diagnose the corporate-CA
-/ TLS path and point the judge at the right CA bundle. (A metric missing from
+error`, `CERTIFICATE_VERIFY_FAILED`, or `403 Public access is disabled`), see
+[`docs/troubleshooting.md`](docs/troubleshooting.md) — it walks the two layers
+(corporate-CA / TLS, then the private-endpoint `403`). (A metric missing from
 `summary.json` always means it failed or was skipped — `scores.jsonl` has the
 real per-case reason.)
 
