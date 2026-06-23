@@ -9,12 +9,10 @@ from .base_openai import AzureOpenAIJudge, OpenAIJudge
 from .benchmark import compare_judges
 from .deepeval_judge import DeepEvalJudge
 from .heuristic import HeuristicJudge
-from .langchain_azure import LangchainAzureJudge
 from .mlflow_judge import MlflowJudge
 from .select import apply_per_metric_judges, build_judge
 
 __all__ = [
-    "LangchainAzureJudge",
     "AzureOpenAIJudge",
     "OpenAIJudge",
     "MlflowJudge",

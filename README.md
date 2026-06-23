@@ -41,10 +41,9 @@ EvalCase ─► Runner ─► Transport.run_turn() ─► RunRecord ─► Score
 
 ```bash
 pip install -e ".[dev]"          # core + tests
-pip install -e ".[langchain]"    # + Azure judge (default) — same client the hr-agent uses
 pip install -e ".[mlflow]"       # + MLflow sink/judge
 pip install -e ".[deepeval]"     # + DeepEval judge
-pip install -e ".[openai]"       # + raw-SDK Azure/OpenAI judge (alternative)
+pip install -e ".[openai]"       # + Azure/OpenAI judge (default)
 ```
 
 ## Usage
@@ -60,7 +59,7 @@ agent-evals list-metrics
 
 # Run a suite against a target (see src/agent_evals/config/targets.yaml).
 # The `local` target mints an unsigned JWT for the backend's `local` profile.
-agent-evals run --target local --suite hr --metrics primary --judge langchain_azure --sink jsonl
+agent-evals run --target local --suite hr --metrics primary --judge azure_openai --sink jsonl
 
 # Deterministic/operational metrics only (no LLM judge needed):
 agent-evals run --target local --suite hr --metrics deterministic
@@ -75,23 +74,9 @@ agent-evals ingest-feedback --input feedback.jsonl --sink jsonl
 
 `--metrics` accepts `all`, `primary` (#1–15), `secondary` (#16–24), a family
 (`deterministic`/`judge`/`operational`/`probe`), or a comma-separated list of
-metric ids. Judge backends: `langchain_azure` (default), `azure_openai` (raw
-SDK), `openai`, `mlflow`, `deepeval`, `heuristic` (no LLM). Per-metric judge
-selection lives under `judge:` in the config.
-
-#### LLM judge setup (`langchain_azure`)
-
-The default judge builds the **same `langchain_openai.AzureChatOpenAI` client the
-hr-agent uses** — api-key auth, the four `AZURE_OPENAI_*` env vars, no
-`max_tokens`. So the simplest reliable setup is **env parity with the agent**:
-copy the agent's `AZURE_OPENAI_API_KEY` / `ENDPOINT` / `DEPLOYMENT_NAME` /
-`API_VERSION` from its `.env` into yours. This matters most for the **endpoint** —
-the raw `*.openai.azure.com` host often has *public access disabled* (`403 Public
-access is disabled`), and only the agent's configured path (gateway/proxy/VNet)
-reaches it. Same machine + same client + same values ⇒ the judge connects exactly
-as the agent does. If the agent reaches Azure through a proxy, export the same
-`HTTPS_PROXY`/`NO_PROXY` for the eval. Determinism: set
-`AZURE_OPENAI_JUDGE_TEMPERATURE` (default `0`).
+metric ids. Judge backends: `azure_openai` (default), `openai`, `mlflow`,
+`deepeval`, `heuristic` (no LLM). Per-metric judge selection lives under `judge:`
+in the config.
 
 ### Running against the backend
 
@@ -121,6 +106,13 @@ it without disabling security:
   or `insecure: true` (dev only).
 - *Smoke test*: set `AGENT_EVALS_USE_TRUSTSTORE=1` (recommended), or
   `AGENT_EVALS_CA_BUNDLE=/path/to/ca.pem`, or `AGENT_EVALS_INSECURE=1`.
+
+### Troubleshooting
+
+Missing judge metrics, an Azure **403 "public access disabled"**, TLS, thread, or
+profile errors? See [`docs/troubleshooting.md`](docs/troubleshooting.md). The
+short version: a metric missing from `summary.json` means it failed or was
+skipped — read `scores.jsonl`, which records the real per-case reason.
 
 ### Viewing results
 

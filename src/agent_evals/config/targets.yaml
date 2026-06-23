@@ -45,12 +45,8 @@ targets:
 
 # Judge backends (neutral interface). default applies to every judged metric;
 # per_metric overrides a specific one so backends can be A/B'd.
-# `langchain_azure` builds the SAME langchain_openai.AzureChatOpenAI client the
-# hr-agent uses (api-key + the four AZURE_OPENAI_* vars, no max_tokens), so the
-# judge reaches the deployment over the same path the agent already uses on the
-# pod. Put the same AZURE_OPENAI_* values the agent uses in your .env.
 judge:
-  default: langchain_azure    # langchain_azure | azure_openai | openai | mlflow | deepeval | heuristic
+  default: azure_openai       # azure_openai | openai | mlflow | deepeval | heuristic
   per_metric: {}
   # e.g.
   #   faithfulness: deepeval

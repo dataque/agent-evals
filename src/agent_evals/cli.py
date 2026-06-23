@@ -36,7 +36,7 @@ def _default_config_path() -> Path:
 
 
 def _load_config(path: str | None) -> dict:
-    load_dotenv(override=True)  # .env is authoritative (matches the hr-agent); supplies ${VAR} in the config
+    load_dotenv()  # .env supplies ${VAR} values referenced in the config
     p = Path(path) if path else _default_config_path()
     return expand_env(yaml.safe_load(p.read_text()) or {})
 
@@ -229,6 +229,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    load_dotenv(override=True)  # make .env values (judge creds, etc.) authoritative for all commands
+    load_dotenv()  # make .env values (judge creds, etc.) available to all commands
     args = build_parser().parse_args(argv)
     return args.func(args)
