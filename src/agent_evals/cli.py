@@ -17,7 +17,6 @@ import agent_evals
 
 from .core.runner import Runner
 from .datasets import load_suite
-from .envfile import expand_env, load_dotenv
 from .judges import apply_per_metric_judges, build_judge
 from .scorers import build_registry, get_scorers
 from .sinks import JsonlSink, MlflowSink
@@ -36,9 +35,8 @@ def _default_config_path() -> Path:
 
 
 def _load_config(path: str | None) -> dict:
-    load_dotenv()  # .env supplies ${VAR} values referenced in the config
     p = Path(path) if path else _default_config_path()
-    return expand_env(yaml.safe_load(p.read_text()) or {})
+    return yaml.safe_load(p.read_text()) or {}
 
 
 def _build_transport(target: dict, persist_dir: str | None) -> AgUiSseTransport:
@@ -73,10 +71,7 @@ def _build_identity(target: dict) -> Identity:
     auth = target.get("auth", {}) or {}
     atype = auth.get("type", "local_jwt")
     if atype == "local_jwt":
-        gpn = (auth.get("gpn") or "").strip()
-        if not gpn:
-            raise SystemExit("local_jwt target needs a GPN — set AGENT_EVALS_GPN in a .env "
-                             "file (copy .env.example), or set auth.gpn in the target config.")
+        gpn = auth.get("gpn", "TEST0001")
         scopes = auth.get("scopes")
         if scopes is None and auth.get("scope"):
             scopes = [auth["scope"]]
@@ -229,6 +224,5 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    load_dotenv()  # make .env values (judge creds, etc.) available to all commands
     args = build_parser().parse_args(argv)
     return args.func(args)

@@ -17,7 +17,7 @@ targets:
       # Use a real GPN that already HAS a profile in the dev datastore (e.g. your own);
       # a missing/fake GPN makes the agent reply "I can't find your profile" and content
       # metrics will be meaningless. There is no in-pod way to seed a profile.
-      gpn: "${AGENT_EVALS_GPN}"   # set in a gitignored .env (copy .env.example)
+      gpn: "REPLACE-ME-REAL-GPN"
       roles: ["GEB_HR", "HR_WITH_HR", "ADMIN"]
       scopes: ["readwrite.api.bff"]   # REQUIRED by the chat SSE endpoint
       user_claim: "ubs_auth_gpn"
@@ -30,7 +30,7 @@ targets:
     base_url: "https://REPLACE-ME-devpod-8080/api/v1/bff/ai/agent/sse"   # forwarded devpod port 8080
     auth:
       type: local_jwt
-      gpn: "${AGENT_EVALS_GPN}"   # set in a gitignored .env (copy .env.example)
+      gpn: "REPLACE-ME-GPN"
       roles: ["GEB_HR", "HR_WITH_HR", "ADMIN"]
       scopes: ["readwrite.api.bff"]
       # Alternative for a real SSO environment:

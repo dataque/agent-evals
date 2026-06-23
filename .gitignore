@@ -2,11 +2,6 @@
 secret.key
 scripts/
 
-# Local env / secrets (real GPN, tokens, judge keys)
-.env
-.env.*
-!.env.example
-
 # Python
 __pycache__/
 *.py[cod]

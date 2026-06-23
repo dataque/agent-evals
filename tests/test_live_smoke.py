@@ -17,7 +17,6 @@ import os
 import pytest
 
 from agent_evals.core.run_record import CompletionStatus, UsageSource
-from agent_evals.envfile import load_dotenv
 from agent_evals.transport import (
     AgUiSseTransport,
     Identity,
@@ -26,7 +25,6 @@ from agent_evals.transport import (
     StaticTokenProvider,
 )
 
-load_dotenv()  # let a local .env supply AGENT_EVALS_* (incl. LIVE_URL to un-skip)
 LIVE_URL = os.getenv("AGENT_EVALS_LIVE_URL")
 pytestmark = pytest.mark.skipif(not LIVE_URL, reason="set AGENT_EVALS_LIVE_URL to run the live smoke test")
 
