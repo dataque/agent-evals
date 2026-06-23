@@ -1,7 +1,7 @@
 """Minimal ``.env`` loader + ``${VAR}`` expansion — no external dependency.
 
-The CLI auto-loads ``.env`` (gitignored) so per-developer values like the caller
-GPN, bearer tokens, and judge credentials stay out of the committed config.
+The CLI auto-loads ``.env`` (gitignored) so per-developer values like the
+caller's login id, bearer tokens, and judge credentials stay out of the committed config.
 Config string values may reference env vars as ``${VAR}`` or ``${VAR:-default}``.
 """
 

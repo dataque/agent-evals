@@ -7,7 +7,7 @@ JWT by default (backend ``local`` profile), or a real bearer token via
 
 Run it:
     AGENT_EVALS_LIVE_URL=http://localhost:8080/api/v1/bff/ai/agent/sse \
-    AGENT_EVALS_GPN=TEST0001 pytest tests/test_live_smoke.py -v
+    AGENT_EVALS_USER_LOGIN_ID=TEST0001 pytest tests/test_live_smoke.py -v
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def _resolve_verify():
 
 
 def _session() -> Session:
-    gpn = os.getenv("AGENT_EVALS_GPN", "TEST0001")
+    user_login_id = os.getenv("AGENT_EVALS_USER_LOGIN_ID", "TEST0001")
     token = os.getenv("AGENT_EVALS_TOKEN")
     if token:
         # a real/pre-made bearer token (e.g. SSO, or paste of the FE dev-token)
@@ -57,11 +57,11 @@ def _session() -> Session:
         # scope is REQUIRED by the chat SSE endpoint; roles drive feature/data gating.
         roles = [r.strip() for r in os.getenv("AGENT_EVALS_ROLES", "GEB_HR,HR_WITH_HR,ADMIN").split(",") if r.strip()]
         scopes = [s.strip() for s in os.getenv("AGENT_EVALS_SCOPE", "readwrite.api.bff").split(",") if s.strip()]
-        provider = LocalJwtMinter(gpn, roles=roles, scopes=scopes)
+        provider = LocalJwtMinter(user_login_id, roles=roles, scopes=scopes)
     transport = AgUiSseTransport(
         LIVE_URL, persist_dir=os.getenv("AGENT_EVALS_PERSIST"), verify=_resolve_verify()
     )
-    return Session(transport, Identity(user_id=gpn, token_provider=provider), timeout_s=120)
+    return Session(transport, Identity(user_id=user_login_id, token_provider=provider), timeout_s=120)
 
 
 def test_live_single_turn_well_formed_runrecord():

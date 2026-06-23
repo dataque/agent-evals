@@ -147,7 +147,7 @@ run records (`runs.jsonl`, field `error`).
 | `CERTIFICATE_VERIFY_FAILED` | endpoint chains to an internal CA | target `tls.use_truststore: true` (or `ca_bundle`, or `insecure` for dev) |
 | `RUN_ERROR: "No value present"` | backend loads the chat thread and it's missing | leave `create_thread: true` (default) so the harness creates it first |
 | `RUN_ERROR: "Stream processing failed"` | the **backend's own** LLM credentials aren't set (its Azure key) | set the backend's LLM key — this is a backend config issue, not an eval one |
-| `"I can't find your profile"` / `TALENT_MARKETPLACE_PROFILE_NOT_FOUND` | the GPN has no profile | the agent serves only the caller's own profile — use a **real GPN that already has one** |
+| `"I can't find your profile"` / `TALENT_MARKETPLACE_PROFILE_NOT_FOUND` | the login id has no profile | the agent serves only the caller's own profile — use a **real user login id that already has one** |
 | every run errors, `abort_rate = 1.0` | backend unreachable, wrong `base_url`, or missing `readwrite.api.bff` scope | verify the URL is reachable and the token carries the required scope/roles |
 
 ## Reading a run's outputs

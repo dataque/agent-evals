@@ -29,16 +29,16 @@ def test_load_dotenv_missing_file_is_noop(tmp_path):
 
 
 def test_expand_env(monkeypatch):
-    monkeypatch.setenv("AGENT_EVALS_GPN", "00012345")
+    monkeypatch.setenv("AGENT_EVALS_USER_LOGIN_ID", "00012345")
     monkeypatch.delenv("MISSING_VAR", raising=False)
     cfg = {
-        "auth": {"gpn": "${AGENT_EVALS_GPN}"},
+        "auth": {"user_login_id": "${AGENT_EVALS_USER_LOGIN_ID}"},
         "url": "https://h/${MISSING_VAR:-api}/x",   # default used when unset
         "timeout": 120,                              # non-strings untouched
-        "list": ["${AGENT_EVALS_GPN}"],
+        "list": ["${AGENT_EVALS_USER_LOGIN_ID}"],
     }
     out = expand_env(cfg)
-    assert out["auth"]["gpn"] == "00012345"
+    assert out["auth"]["user_login_id"] == "00012345"
     assert out["url"] == "https://h/api/x"
     assert out["timeout"] == 120
     assert out["list"] == ["00012345"]

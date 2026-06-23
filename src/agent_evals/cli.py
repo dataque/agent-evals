@@ -73,18 +73,19 @@ def _build_identity(target: dict) -> Identity:
     auth = target.get("auth", {}) or {}
     atype = auth.get("type", "local_jwt")
     if atype == "local_jwt":
-        gpn = (auth.get("gpn") or "").strip()
-        if not gpn:
-            raise SystemExit("local_jwt target needs a GPN — set AGENT_EVALS_GPN in a .env "
-                             "file (copy .env.example), or set auth.gpn in the target config.")
+        user_login_id = (auth.get("user_login_id") or "").strip()
+        if not user_login_id:
+            raise SystemExit("local_jwt target needs a user login id — set "
+                             "AGENT_EVALS_USER_LOGIN_ID in a .env file (copy .env.example), "
+                             "or set auth.user_login_id in the target config.")
         scopes = auth.get("scopes")
         if scopes is None and auth.get("scope"):
             scopes = [auth["scope"]]
         return Identity(
-            user_id=gpn,
+            user_id=user_login_id,
             token_provider=LocalJwtMinter(
-                gpn,
-                user_claim=auth.get("user_claim", "ubs_auth_gpn"),
+                user_login_id,
+                user_claim=auth.get("user_claim"),
                 roles=auth.get("roles"),
                 scopes=scopes,
             ),

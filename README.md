@@ -48,10 +48,10 @@ pip install -e ".[openai]"       # + Azure/OpenAI judge (default)
 
 ## Usage
 
-Per-developer values (your GPN, tokens, judge keys) go in a gitignored **`.env`**
+Per-developer values (your user login id, tokens, judge keys) go in a gitignored **`.env`**
 (copy `.env.example`). The CLI auto-loads it, and `targets.yaml` references vars as
-`${VAR}` — e.g. `gpn: "${AGENT_EVALS_GPN}"`. So set `AGENT_EVALS_GPN=<your real GPN>`
-in `.env` before running.
+`${VAR}` — e.g. `user_login_id: "${AGENT_EVALS_USER_LOGIN_ID}"`. So set
+`AGENT_EVALS_USER_LOGIN_ID=<your real login id>` in `.env` before running.
 
 ```bash
 # List the 24 implemented metrics
@@ -86,11 +86,11 @@ end-to-end smoke test exercises a real backend (auto-skipped otherwise):
 
 ```bash
 AGENT_EVALS_LIVE_URL=http://localhost:8080/api/v1/bff/ai/agent/sse \
-AGENT_EVALS_GPN=<your-real-gpn> pytest tests/test_live_smoke.py -v
+AGENT_EVALS_USER_LOGIN_ID=<your-real-login-id> pytest tests/test_live_smoke.py -v
 ```
 
-**The agent serves only the caller's own talent profile** (resolved from the JWT
-GPN), so use a **real GPN that already has a profile** (e.g. your own) — a
+**The agent serves only the caller's own profile** (resolved from the JWT user
+login id), so use a **real login id that already has a profile** (e.g. your own) — a
 fake/missing one makes the agent reply *"I can't find your profile."* The harness
 creates the chat thread automatically (GraphQL `createThread`) before the first turn.
 

@@ -14,9 +14,11 @@ import time
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
-# The backend reads the caller's id from this JWT claim. It is configurable so
-# the harness stays generic across deployments.
-DEFAULT_USER_CLAIM = "ubs_auth_gpn"
+# The standard JWT subject claim. A backend reads the caller's id from a claim
+# whose NAME is deployment-specific, so it is configurable per target (set
+# ``user_claim`` on the target / ``LocalJwtMinter``); this generic default keeps
+# the harness usable out of the box against any backend that honors ``sub``.
+DEFAULT_USER_CLAIM = "sub"
 
 
 def _b64url(data: bytes) -> str:
@@ -44,20 +46,20 @@ class LocalJwtMinter:
 
     def __init__(
         self,
-        gpn: str,
+        user_login_id: str,
         *,
         roles: list[str] | None = None,
         scopes: list[str] | None = None,
-        user_claim: str = DEFAULT_USER_CLAIM,
+        user_claim: str | None = None,
         subject: str | None = None,
         ttl_seconds: int = 365 * 24 * 60 * 60,
         extra_claims: dict | None = None,
     ) -> None:
-        self.gpn = gpn
+        self.user_login_id = user_login_id
         self.roles = list(roles or [])
         self.scopes = list(scopes or [])
-        self.user_claim = user_claim
-        self.subject = subject or gpn
+        self.user_claim = user_claim or DEFAULT_USER_CLAIM
+        self.subject = subject or user_login_id
         self.ttl_seconds = ttl_seconds
         self.extra_claims = dict(extra_claims or {})
 
@@ -65,7 +67,7 @@ class LocalJwtMinter:
         header = _b64url(json.dumps({"alg": "none", "typ": "JWT"}).encode())
         now = int(time.time())
         payload = {
-            self.user_claim: self.gpn,          # userId claim the backend reads
+            self.user_claim: self.user_login_id,  # userId claim the backend reads
             "sub": self.subject,
             "roles": self.roles,                 # -> ROLE_* authorities
             "scope": " ".join(self.scopes),      # space-delimited -> SCOPE_* authorities

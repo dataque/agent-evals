@@ -13,14 +13,14 @@ targets:
     base_url: "http://localhost:8080/api/v1/bff/ai/agent/sse"
     auth:
       type: local_jwt          # no-SSO dev access: self-asserted unsigned JWT (backend dev profile)
-      # The agent serves ONLY the caller's own talent profile (resolved from this GPN).
-      # Use a real GPN that already HAS a profile in the dev datastore (e.g. your own);
-      # a missing/fake GPN makes the agent reply "I can't find your profile" and content
+      # The agent serves ONLY the caller's own profile (resolved from this login id).
+      # Use a real login id that already HAS a profile in the datastore (e.g. your own);
+      # a missing/fake id makes the agent reply "I can't find your profile" and content
       # metrics will be meaningless. There is no in-pod way to seed a profile.
-      gpn: "${AGENT_EVALS_GPN}"   # set in a gitignored .env (copy .env.example)
-      roles: ["GEB_HR", "HR_WITH_HR", "ADMIN"]
-      scopes: ["readwrite.api.bff"]   # REQUIRED by the chat SSE endpoint
-      user_claim: "ubs_auth_gpn"
+      user_login_id: "${AGENT_EVALS_USER_LOGIN_ID}"   # set in a gitignored .env (copy .env.example)
+      roles: ["GEB_HR", "HR_WITH_HR", "ADMIN"]   # authorities this backend expects (deployment-specific)
+      scopes: ["readwrite.api.bff"]   # scope REQUIRED by the chat SSE endpoint (deployment-specific)
+      user_claim: "ubs_auth_gpn"      # JWT claim THIS backend reads the user id from (deployment-specific)
     timeout_s: 120
 
   # Cloud / devpod: eval runs remotely and reaches the backend over the forwarded
@@ -30,9 +30,10 @@ targets:
     base_url: "https://REPLACE-ME-devpod-8080/api/v1/bff/ai/agent/sse"   # forwarded devpod port 8080
     auth:
       type: local_jwt
-      gpn: "${AGENT_EVALS_GPN}"   # set in a gitignored .env (copy .env.example)
+      user_login_id: "${AGENT_EVALS_USER_LOGIN_ID}"   # set in a gitignored .env (copy .env.example)
       roles: ["GEB_HR", "HR_WITH_HR", "ADMIN"]
       scopes: ["readwrite.api.bff"]
+      user_claim: "ubs_auth_gpn"   # JWT claim THIS backend reads the user id from (deployment-specific)
       # Alternative for a real SSO environment:
       #   type: static
       #   token_env: "AGENT_EVALS_TOKEN"

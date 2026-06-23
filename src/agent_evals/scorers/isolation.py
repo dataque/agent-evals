@@ -18,7 +18,7 @@ import json
 from ..core.scorer import Family, Score, ScorerSpec, ScoringContext, TurnScope
 
 _ID_KEYS = {
-    "userid", "user_id", "ownerid", "owner_id", "gpn", "ubs_auth_gpn",
+    "userid", "user_id", "ownerid", "owner_id", "login_id", "user_login_id",
     "employeeid", "employee_id", "createdby", "created_by", "lastmodifiedby",
 }
 

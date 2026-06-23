@@ -22,7 +22,8 @@ def test_local_jwt_minter_default_claim():
     token = LocalJwtMinter("TEST0001", scopes=["readwrite.api.bff"]).get_token()
     assert token.count(".") == 2          # header.payload.sig
     claims = _decode_payload(token)
-    assert claims["ubs_auth_gpn"] == "TEST0001"
+    assert claims["sub"] == "TEST0001"  # default claim is the standard JWT subject
+    assert "ubs_auth_gpn" not in claims  # deployment-specific claim names live in config, not the code default
     assert claims["scope"] == "readwrite.api.bff"
 
 
