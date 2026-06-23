@@ -81,11 +81,17 @@ end-to-end smoke test exercises a real backend (auto-skipped otherwise):
 
 ```bash
 AGENT_EVALS_LIVE_URL=http://localhost:8080/api/v1/bff/ai/agent/sse \
-AGENT_EVALS_GPN=TEST0001 pytest tests/test_live_smoke.py -v
+AGENT_EVALS_GPN=<your-real-gpn> pytest tests/test_live_smoke.py -v
 ```
 
-For non-local environments, set `auth.type: static` in the target and provide a
-real bearer token via the configured env var.
+**The agent serves only the caller's own talent profile** (resolved from the JWT
+GPN), so use a **real GPN that already has a profile** (e.g. your own) — a
+fake/missing one makes the agent reply *"I can't find your profile."* The harness
+creates the chat thread automatically (GraphQL `createThread`) before the first turn.
+
+For non-local environments, keep the no-SSO `local_jwt` auth (the minted token
+carries `roles` + the `readwrite.api.bff` scope) pointed at the forwarded URL, or
+set `auth.type: static` and supply a real bearer token via the configured env var.
 
 **TLS (corporate / private-CA endpoints).** If the backend's certificate chains
 to an internal CA, default verification fails (`CERTIFICATE_VERIFY_FAILED`). Fix
@@ -141,7 +147,7 @@ In the UI, open the **`agent-evals`** experiment → your run (`<suite>-<target>
 
 ## Status
 
-All 24 in-scope metrics from `docs/metrics.md` are implemented (Level-3 retrieval
-metrics are N/A — no retriever). Test suite runs fully offline (the transport is
+All 24 in-scope metrics from `docs/metrics.md` are implemented (the Excluded
+retrieval metrics are N/A — no retriever). Test suite runs fully offline (the transport is
 verified against a mock backend reproducing the exact AG-UI/SSE wire contract);
 the live smoke test runs against a real backend when `AGENT_EVALS_LIVE_URL` is set.
