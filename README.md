@@ -53,6 +53,10 @@ Per-developer values (your user login id, tokens, judge keys) go in a gitignored
 `${VAR}` — e.g. `user_login_id: "${AGENT_EVALS_USER_LOGIN_ID}"`. So set
 `AGENT_EVALS_USER_LOGIN_ID=<your real login id>` in `.env` before running.
 
+> Going beyond a smoke run? [`docs/evaluation-setup.md`](docs/evaluation-setup.md)
+> is the reference for turning a working harness into a complete eval program —
+> dataset, tool contracts, judge calibration, and operationalization.
+
 ```bash
 # List the 24 implemented metrics
 agent-evals list-metrics
