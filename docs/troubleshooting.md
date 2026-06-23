@@ -99,6 +99,64 @@ env | grep -iE 'proxy'
 #   tr '\0' '\n' < /proc/<backend-pid>/environ | grep -iE 'AZURE_OPENAI|PROXY'
 ```
 
+### `Connection error` instead of `403` — the TLS/truststore coupling
+
+If `scores.jsonl` shows `Connection error` (the OpenAI SDK's `APIConnectionError`)
+rather than `403`, the SDK couldn't open or verify the socket at all — and it
+flattens the real cause to that bare string, so `scores.jsonl` won't say which.
+The usual cause is the **corporate-CA TLS verification failing for the Azure
+host** (certifi has no corp root), and it is coupled to the *target* you ran,
+because `truststore.inject_into_ssl()` is a process-wide monkeypatch:
+
+- a target with `tls.use_truststore: true` (e.g. `devpod`) makes the judge verify
+  against the **OS trust store** → TLS passes → you see the `403`;
+- a target with no `tls` block (e.g. `local`) leaves the judge on **certifi**,
+  which lacks the corp CA → TLS verify fails → `Connection error`.
+
+Surface the real cause (run in the pod, with `.env` loaded). It makes one call on
+each path, so it also shows the `403` wall sitting behind the TLS layer:
+
+```python
+python3 - <<'PY'
+import os
+from agent_evals.envfile import load_dotenv; load_dotenv()
+from openai import AzureOpenAI
+
+def call(label):
+    c = AzureOpenAI(api_key=os.environ["AZURE_OPENAI_API_KEY"],
+                    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+                    api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21"))
+    try:
+        c.chat.completions.create(model=os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"],
+                                  messages=[{"role": "user", "content": "ping"}], max_tokens=5)
+        print(label, "OK")
+    except Exception as e:
+        print(label, "FAIL:", type(e).__name__, "->", e)
+        cause = e.__cause__
+        while cause:
+            print("   cause:", type(cause).__name__, "->", cause)
+            cause = cause.__cause__
+
+call("certifi  (mirrors --target local):")
+import truststore; truststore.inject_into_ssl()
+call("OS store (mirrors --target devpod):")
+PY
+```
+
+Expected: the certifi line fails with `SSLCertVerificationError … unable to get
+local issuer certificate`; the OS-store line fails with the Azure `403 … Public
+access is disabled`.
+
+To clear *just* the TLS error, independently of the target, point Python at the
+corp CA bundle curl already trusts (the OpenAI SDK / httpx honor `SSL_CERT_FILE`):
+
+```bash
+export SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt   # RHEL/UBI; Debian: /etc/ssl/certs/ca-certificates.crt
+```
+
+That stops `Connection error`, but usually reveals the `403` again — the real
+blocker, fixed via the egress / private-endpoint steps below.
+
 ### Fix — match the backend's egress
 
 The judge uses the OpenAI SDK over httpx with `trust_env=True`, so it honors
@@ -136,6 +194,7 @@ agent-evals run --target devpod --suite hr --metrics primary --judge heuristic -
 | `401` / `invalid api key` | wrong/empty key | check `AZURE_OPENAI_API_KEY` |
 | `404` / `DeploymentNotFound` | `AZURE_OPENAI_DEPLOYMENT_NAME` is the model name, not the deployment, or wrong `AZURE_OPENAI_API_VERSION` | use the deployment name; align the api-version |
 | `400` re `max_tokens` / `temperature` | some GPT-5-family deployments require `max_completion_tokens` and a fixed temperature | use a chat deployment that accepts the classic params, or adjust the judge call |
+| `Connection error` | SDK couldn't open/verify the socket — usually corp-CA TLS verify failure (certifi lacks the CA), or no egress to Azure | set `SSL_CERT_FILE` to the corp bundle (see "`Connection error` instead of `403`" above), then resolve the egress |
 
 ## Common backend-transport errors
 
