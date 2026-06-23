@@ -109,7 +109,8 @@ host** (certifi has no corp root), and it is coupled to the *target* you ran,
 because `truststore.inject_into_ssl()` is a process-wide monkeypatch:
 
 - a target with `tls.use_truststore: true` (e.g. `devpod`) makes the judge verify
-  against the **OS trust store** → TLS passes → you see the `403`;
+  against the **OS trust store** → verifies *if* that store has the corp CA, then
+  the `403` surfaces;
 - a target with no `tls` block (e.g. `local`) leaves the judge on **certifi**,
   which lacks the corp CA → TLS verify fails → `Connection error`.
 
@@ -143,18 +144,46 @@ call("OS store (mirrors --target devpod):")
 PY
 ```
 
-Expected: the certifi line fails with `SSLCertVerificationError … unable to get
-local issuer certificate`; the OS-store line fails with the Azure `403 … Public
-access is disabled`.
+Two outcomes are common:
 
-To clear *just* the TLS error, independently of the target, point Python at the
-corp CA bundle curl already trusts (the OpenAI SDK / httpx honor `SSL_CERT_FILE`):
+- certifi line → `SSLCertVerificationError … unable to get local issuer certificate`,
+  OS-store line → Azure `403 … Public access is disabled`: the OS store trusts the
+  chain; fix the `403` via the egress steps below.
+- **both** lines → `CERTIFICATE_VERIFY_FAILED … unable to get local issuer
+  certificate`: the cert you're handed is signed by a CA in **neither** store — a
+  **corporate TLS-intercepting proxy** (or a private-CA endpoint) sits in the
+  judge's path. You aren't reaching Azure at all; you need *that* CA, which the
+  backend already trusts (that's how it connects).
+
+When **both** fail, identify the intercepting CA and the bundle that already trusts it:
 
 ```bash
-export SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt   # RHEL/UBI; Debian: /etc/ssl/certs/ca-certificates.crt
+H=<your-azure-openai-host>   # host from AZURE_OPENAI_ENDPOINT, e.g. <resource>.openai.azure.com
+
+python3 -c "import httpx; print(httpx.get('https://example.com').status_code)"   # 200 => certifi fine; only this host is intercepted
+openssl s_client -connect "$H:443" -servername "$H" </dev/null 2>/dev/null | openssl x509 -noout -issuer   # a corp issuer => interception
+curl -sS -o /dev/null -w '%{http_code}\n' "https://$H/"            # does curl trust it without -k?
+curl -v "https://$H/" 2>&1 | grep -iE 'CAfile|CApath'             # the bundle curl uses
+env | grep -iE 'CA_BUNDLE|SSL_CERT|CA_CERT|REQUESTS_CA|NODE_EXTRA' # an already-exported corp bundle?
 ```
 
-That stops `Connection error`, but usually reveals the `403` again — the real
+Then point Python at that bundle — the OpenAI SDK / httpx honor `SSL_CERT_FILE`, so
+this is target-independent and needs **no code change**:
+
+```bash
+export SSL_CERT_FILE=<the CAfile curl uses, or the corp bundle from env>
+# common: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem  or  /etc/ssl/certs/ca-certificates.crt
+```
+
+If curl also fails and no bundle env var exists, extract the CAs the backend's JVM
+already trusts and use those:
+
+```bash
+keytool -list -rfc -keystore "$JAVA_HOME/lib/security/cacerts" -storepass changeit > /tmp/corp-cas.pem
+export SSL_CERT_FILE=/tmp/corp-cas.pem
+```
+
+Once TLS passes you'll either succeed, or finally see the `403` — the real
 blocker, fixed via the egress / private-endpoint steps below.
 
 ### Fix — match the backend's egress
