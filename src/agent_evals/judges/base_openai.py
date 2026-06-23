@@ -67,20 +67,55 @@ class _BaseLLMJudge:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self._client = client
+        # Model families differ in request shape: GPT-5 / o-series renamed
+        # ``max_tokens`` -> ``max_completion_tokens``, accept only the default
+        # temperature, and some reject ``response_format``. Start with the classic
+        # shape and degrade on the first 400, caching the result for later calls.
+        self._token_param = "max_tokens"
+        self._send_temperature = True
+        self._send_response_format = True
 
     def _ensure_client(self):  # pragma: no cover - network/SDK glue
         raise NotImplementedError
 
-    def _complete(self, messages: list[dict]) -> str:  # pragma: no cover
+    def _complete(self, messages: list[dict]) -> str:
         client = self._ensure_client()
-        resp = client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            response_format={"type": "json_object"},
-        )
-        return resp.choices[0].message.content
+        while True:
+            kwargs: dict = {"model": self.model, "messages": messages,
+                            self._token_param: self.max_tokens}
+            if self._send_temperature and self.temperature is not None:
+                kwargs["temperature"] = self.temperature
+            if self._send_response_format:
+                kwargs["response_format"] = {"type": "json_object"}
+            try:
+                resp = client.chat.completions.create(**kwargs)
+                return resp.choices[0].message.content
+            except Exception as exc:  # adapt to the model's parameter shape, then retry
+                if self._adapt_params(exc):
+                    continue
+                raise
+
+    def _adapt_params(self, exc: Exception) -> bool:
+        """React to a 400 about an unsupported parameter by flipping one flag.
+
+        Returns True (caller retries) only when a flag actually changed. Each flag
+        flips at most once, so this loops at most three times before re-raising;
+        any non-parameter error propagates unchanged."""
+        msg = str(exc).lower()
+        if not any(p in msg for p in
+                   ("max_tokens", "max_completion_tokens", "temperature", "response_format")):
+            return False
+        changed = False
+        if self._token_param == "max_tokens" and ("max_tokens" in msg or "max_completion_tokens" in msg):
+            self._token_param = "max_completion_tokens"
+            changed = True
+        if self._send_temperature and "temperature" in msg:
+            self._send_temperature = False
+            changed = True
+        if self._send_response_format and "response_format" in msg:
+            self._send_response_format = False
+            changed = True
+        return changed
 
     def evaluate(self, *, criteria, response, question=None, context=None, reference=None) -> JudgeVerdict:
         user = _build_user(criteria, response, question, context, reference)
