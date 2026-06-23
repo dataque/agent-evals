@@ -111,6 +111,38 @@ it without disabling security:
 - *Smoke test*: set `AGENT_EVALS_USE_TRUSTSTORE=1` (recommended), or
   `AGENT_EVALS_CA_BUNDLE=/path/to/ca.pem`, or `AGENT_EVALS_INSECURE=1`.
 
+### Environment for a reproducible run
+
+Pin everything a run depends on so anyone can reproduce it. Per-developer values
+go in `.env` (auto-loaded); the proxy bypass must be **exported in the launching
+shell** — the corp profile already exports `no_proxy` and the harness's
+`load_dotenv()` will not override an already-set variable, so a `.env` edit to it
+is ignored.
+
+```bash
+# .env — identity, endpoints, and judge credentials
+AGENT_EVALS_USER_LOGIN_ID=<a real login id that already has a profile>
+# base_url per target (the `local` target defaults to localhost; set the one you use):
+AGENT_EVALS_DEVPOD_BASE_URL=https://<forwarded-host>/api/v1/bff/ai/agent/sse
+AZURE_OPENAI_API_KEY=<key>
+AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
+AZURE_OPENAI_API_VERSION=2024-10-21
+AZURE_OPENAI_DEPLOYMENT_NAME=<deployment>
+SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt          # corp CA bundle (or use a target `tls:` block)
+```
+
+```bash
+# shell — bypass the proxy for the judge's host so its call goes direct, not via
+# the public-blocking proxy (set the lowercase var; the corp profile presets it)
+export no_proxy="${no_proxy},<judge-host>"; export NO_PROXY="$no_proxy"
+```
+
+Two things the eval can't set but you should **record** for reproducibility: the
+**backend's own LLM credentials** (configured backend-side — without them the agent
+itself errors), and the **backend build/commit under test**. The TLS/proxy
+reasoning lives in [`docs/troubleshooting.md`](docs/troubleshooting.md); the full
+setup path is in [`docs/evaluation-setup.md`](docs/evaluation-setup.md).
+
 ### Troubleshooting
 
 If `--judge azure_openai` fails on every call (`scores.jsonl` shows `Connection
