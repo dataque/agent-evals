@@ -12,8 +12,11 @@ from collections.abc import Iterable
 from ..core.judge import Judge
 
 _ALIASES = {
+    "langchain": "langchain_azure",
+    "azure_langchain": "langchain_azure",
     "azure": "azure_openai",
     "azureopenai": "azure_openai",
+    "azure_openai_sdk": "azure_openai",
     "stub": "heuristic",
     "none": "heuristic",
 }
@@ -21,6 +24,10 @@ _ALIASES = {
 
 def build_judge(name: str | None, **kwargs) -> Judge:
     key = _ALIASES.get((name or "heuristic").lower(), (name or "heuristic").lower())
+    if key == "langchain_azure":
+        from .langchain_azure import LangchainAzureJudge
+
+        return LangchainAzureJudge(**kwargs)
     if key == "azure_openai":
         from .base_openai import AzureOpenAIJudge
 

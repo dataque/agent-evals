@@ -61,8 +61,8 @@ def _parse_verdict(raw: str) -> JudgeVerdict:
 class _BaseLLMJudge:
     name = "llm"
 
-    def __init__(self, *, model: str | None = None, temperature: float = 0.0,
-                 max_tokens: int = 400, client=None) -> None:
+    def __init__(self, *, model: str | None = None, temperature: float | None = 0.0,
+                 max_tokens: int | None = None, client=None) -> None:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -73,13 +73,16 @@ class _BaseLLMJudge:
 
     def _complete(self, messages: list[dict]) -> str:  # pragma: no cover
         client = self._ensure_client()
-        resp = client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            response_format={"type": "json_object"},
-        )
+        # Only send temperature/max_tokens when set: newer deployments (gpt-5.x)
+        # reject `max_tokens` (they want `max_completion_tokens`) and non-default
+        # temperature, so omitting them keeps the judge portable across models.
+        kwargs: dict = {"model": self.model, "messages": messages,
+                        "response_format": {"type": "json_object"}}
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
+        if self.max_tokens is not None:
+            kwargs["max_tokens"] = self.max_tokens
+        resp = client.chat.completions.create(**kwargs)
         return resp.choices[0].message.content
 
     def evaluate(self, *, criteria, response, question=None, context=None, reference=None) -> JudgeVerdict:
@@ -109,9 +112,10 @@ class OpenAIJudge(_BaseLLMJudge):
 
 
 class AzureOpenAIJudge(_BaseLLMJudge):
-    """Default judge. Reads Azure config from the environment (matching the
-    backend's deployment): AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT,
-    AZURE_OPENAI_API_VERSION, AZURE_OPENAI_DEPLOYMENT_NAME."""
+    """Raw-`openai`-SDK Azure judge (alternative to the default ``langchain_azure``,
+    which mirrors the hr-agent's client). Reads Azure config from the environment:
+    AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_VERSION,
+    AZURE_OPENAI_DEPLOYMENT_NAME."""
 
     name = "azure_openai"
 

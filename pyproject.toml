@@ -21,8 +21,11 @@ mlflow = ["mlflow>=2.14"]
 # Optional judge backends, behind the neutral Judge interface.
 deepeval = ["deepeval>=1.0"]
 openai = ["openai>=1.30"]
+# Default Azure judge — same client the hr-agent uses, so it inherits the dev
+# pod's working endpoint/proxy/TLS behaviour.
+langchain = ["langchain-openai>=0.2"]
 dev = ["pytest>=8.0"]
-all = ["mlflow>=2.14", "deepeval>=1.0", "openai>=1.30", "pytest>=8.0"]
+all = ["mlflow>=2.14", "deepeval>=1.0", "openai>=1.30", "langchain-openai>=0.2", "pytest>=8.0"]
 
 [project.scripts]
 agent-evals = "agent_evals.cli:main"
