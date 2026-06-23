@@ -9,8 +9,8 @@
 targets:
   # Backend running under its no-auth dev profile in the SAME pod as the eval.
   local:
-    transport: agui_sse
-    base_url: "http://localhost:8080/api/v1/bff/ai/agent/sse"
+    transport: agui_sse        # only agui_sse (AG-UI/SSE) is wired in the CLI today
+    base_url: "${AGENT_EVALS_LOCAL_BASE_URL:-http://localhost:8080/api/v1/bff/ai/agent/sse}"   # from .env; defaults to localhost
     auth:
       type: local_jwt          # no-SSO dev access: self-asserted unsigned JWT (backend dev profile)
       # The agent serves ONLY the caller's own profile (resolved from this login id).
@@ -26,8 +26,8 @@ targets:
   # Cloud / devpod: eval runs remotely and reaches the backend over the forwarded
   # HTTPS URL. Same no-SSO token (NO interactive Microsoft login).
   devpod:
-    transport: agui_sse
-    base_url: "https://REPLACE-ME-devpod-8080/api/v1/bff/ai/agent/sse"   # forwarded devpod port 8080
+    transport: agui_sse        # only agui_sse (AG-UI/SSE) is wired in the CLI today
+    base_url: "${AGENT_EVALS_DEVPOD_BASE_URL}"   # set AGENT_EVALS_DEVPOD_BASE_URL in .env (your forwarded HTTPS URL)
     auth:
       type: local_jwt
       user_login_id: "${AGENT_EVALS_USER_LOGIN_ID}"   # set in a gitignored .env (copy .env.example)

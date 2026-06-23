@@ -34,11 +34,13 @@ def test_expand_env(monkeypatch):
     cfg = {
         "auth": {"user_login_id": "${AGENT_EVALS_USER_LOGIN_ID}"},
         "url": "https://h/${MISSING_VAR:-api}/x",   # default used when unset
+        "base_url": "${MISSING_VAR:-http://localhost:8080/api/v1/x}",  # default may contain : and /
         "timeout": 120,                              # non-strings untouched
         "list": ["${AGENT_EVALS_USER_LOGIN_ID}"],
     }
     out = expand_env(cfg)
     assert out["auth"]["user_login_id"] == "00012345"
     assert out["url"] == "https://h/api/x"
+    assert out["base_url"] == "http://localhost:8080/api/v1/x"
     assert out["timeout"] == 120
     assert out["list"] == ["00012345"]

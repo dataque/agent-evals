@@ -45,6 +45,11 @@ def _build_transport(target: dict, persist_dir: str | None) -> AgUiSseTransport:
     transport = target.get("transport", "agui_sse")
     if transport != "agui_sse":
         raise SystemExit(f"unsupported transport: {transport!r} (only agui_sse in v1)")
+    base_url = (target.get("base_url") or "").strip()
+    if not base_url or "REPLACE-ME" in base_url:
+        raise SystemExit("target base_url is empty/unset — set the target's URL env var in a "
+                         ".env file (e.g. AGENT_EVALS_DEVPOD_BASE_URL; copy .env.example), or "
+                         "set base_url directly in the target config.")
     tls = target.get("tls", {}) or {}
     if tls.get("use_truststore"):
         try:
@@ -61,7 +66,7 @@ def _build_transport(target: dict, persist_dir: str | None) -> AgUiSseTransport:
     else:
         verify = True
     return AgUiSseTransport(
-        target["base_url"],
+        base_url,
         persist_dir=persist_dir,
         verify=verify,
         create_thread=target.get("create_thread", True),
