@@ -48,6 +48,11 @@ pip install -e ".[openai]"       # + Azure/OpenAI judge (default)
 
 ## Usage
 
+Per-developer values (your GPN, tokens, judge keys) go in a gitignored **`.env`**
+(copy `.env.example`). The CLI auto-loads it, and `targets.yaml` references vars as
+`${VAR}` — e.g. `gpn: "${AGENT_EVALS_GPN}"`. So set `AGENT_EVALS_GPN=<your real GPN>`
+in `.env` before running.
+
 ```bash
 # List the 24 implemented metrics
 agent-evals list-metrics
