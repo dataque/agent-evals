@@ -134,6 +134,12 @@ Fix, by what the diagnosis shows:
   export NO_PROXY="${NO_PROXY},.openai.azure.com,$H"
   # also unset HTTPS_PROXY/HTTP_PROXY if they were forcing the Azure host through the proxy
   ```
+  Two gotchas: it only helps if `getent hosts $H` returns a (private) address — if
+  it returns **nothing**, the proxy is your only egress and `NO_PROXY` just swaps
+  the `403` for a DNS error (there's no direct route to reach). And `NO_PROXY` must
+  be **exported in the launching shell**, not set in `.env`: the corp profile
+  already exports it, and the harness's `load_dotenv()` won't override an
+  already-set variable, so a `.env` edit is silently ignored.
 - **Backend uses a specific proxy (not the MITM one)** → point the judge at it:
   `export HTTPS_PROXY=<the backend's proxy>` (and copy its `NO_PROXY`).
 - **Backend points at a different endpoint host** (a `…privatelink.openai.azure.com`
@@ -144,6 +150,61 @@ Rule of thumb: whatever `/proc/<backend-pid>/environ` shows for
 route works from this pod. If the private endpoint genuinely isn't reachable from
 your shell, point the judge at a **public-access** resource (another dev Azure
 OpenAI, or a personal key via `--judge openai`), or use the offline judge below.
+
+### Verify what the judge actually sees
+
+If a fix "didn't take", confirm the judge's *effective* config instead of trusting
+the `export`, and read a **fresh** result rather than a stale `scores.jsonl`:
+
+```python
+python3 - <<'PY'
+import os, socket
+from agent_evals.envfile import load_dotenv; load_dotenv()
+from urllib.parse import urlparse
+
+host = urlparse(os.environ.get("AZURE_OPENAI_ENDPOINT", "")).hostname or "?"
+print("=== env this process actually has (after load_dotenv) ===")
+for k in ("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT_NAME", "SSL_CERT_FILE",
+          "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"):
+    print(f"  {k:24s} = {os.environ.get(k)!r}")
+
+print("\n=== direct DNS? (empty => the proxy is your only egress) ===")
+try:
+    print("  resolves to", socket.getaddrinfo(host, 443)[0][4])
+except Exception as e:
+    print("  NO direct route:", e)
+
+print("\n=== does httpx proxy this host? (trust_env=True mirrors the judge) ===")
+import httpx
+url = f"https://{host}/openai/v1/models"
+for trust in (True, False):
+    try:
+        r = httpx.Client(trust_env=trust, timeout=20).get(
+            url, headers={"api-key": os.environ.get("AZURE_OPENAI_API_KEY", "")})
+        print(f"  trust_env={trust}: HTTP {r.status_code}")
+    except Exception as e:
+        print(f"  trust_env={trust}: {type(e).__name__}: {str(e)[:90]}")
+
+print("\n=== the real judge call (fresh) ===")
+try:
+    from openai import AzureOpenAI
+    AzureOpenAI(api_key=os.environ["AZURE_OPENAI_API_KEY"],
+                azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
+    ).chat.completions.create(model=os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"],
+                              messages=[{"role": "user", "content": "ping"}], max_tokens=5)
+    print("  OK")
+except Exception as e:
+    print("  FAIL:", type(e).__name__, "->", str(e)[:160])
+PY
+```
+
+Reading it:
+- `NO_PROXY` printed **without your host** → the `export` didn't reach this process (the `.env` trap above).
+- `trust_env=True` → `403` → still proxying (your `NO_PROXY` isn't applied/matching).
+- `trust_env=True` → `ConnectError`/DNS **and** direct DNS empty → `NO_PROXY` *is*
+  working, but there's no direct route, so it can't help; the proxy → public →
+  `403` is the only path, and you need the backend's route or a reachable model.
 
 ## Keep moving without the LLM
 
