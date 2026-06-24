@@ -1,0 +1,212 @@
+# Talent-profile capability cluster for the HR agent eval suite.
+# Supersedes the talent cases in the older profile_skills.yaml stub (which had
+# wrong tool-arg goldens). Behaviors here are derived from the CURRENT backend
+# prompts/tools — code wins over the outdated Figma.
+#
+# Conventions:
+#   ‹gate›  = fill from the one-time capture run against the FROZEN test profile.
+#   expected_scenario_id / expected_pills are scored once the pills scorer
+#     (task #13) lands; the pill sets below come from the backend pill-scenarios.
+#   We deliberately DO NOT assert expected_tool_args shapes we have not verified
+#     against a real run — that is the exact bug found in the old stub.
+
+# ───────────────────────────────────────────────────────────────────────────
+# #16  Profile view & completeness — analyze_talent_profile / get_talent_profile
+# ───────────────────────────────────────────────────────────────────────────
+- id: profile-completeness-canonical
+  inputs: { question: "How complete is my profile?" }
+  metadata: { capability: profile_completeness, input_source: inferred }
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["analyze_talent_profile"]
+    allowed_tool_calls: ["analyze_talent_profile", "get_talent_profile"]
+    max_steps: 3
+    expected_scenario_id: "profile_analyzed"      # ‹gate: profile_not_set_up if profile ≤10%›
+    expected_pills: ["Find matching roles", "Update my skills"]   # ‹gate: ["I've updated my profile"] if not_set_up›
+    forbidden_substrings: ["---CONTEXT---", "scenario_id", "emit_followups"]
+    response_must_contain: []           # ‹gate: real % and/or a true missing-section name›
+    expected_response: |                # ‹gate → reference only, never exact-match›
+      The completion % + which sections are still missing + what to add.
+
+- id: profile-completeness-missing-sections
+  inputs: { question: "What's missing from my profile?" }
+  metadata: { capability: profile_completeness, input_source: inferred }
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["analyze_talent_profile"]
+    allowed_tool_calls: ["analyze_talent_profile", "get_talent_profile"]
+    max_steps: 3
+    expected_scenario_id: "profile_analyzed"      # ‹gate: branch›
+    expected_pills: ["Find matching roles", "Update my skills"]   # ‹gate: branch›
+    forbidden_substrings: ["---CONTEXT---", "scenario_id"]
+
+- id: profile-completeness-terse
+  inputs: { question: "profile completeness?" }
+  metadata: { capability: profile_completeness, input_source: inferred }
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["analyze_talent_profile"]
+    allowed_tool_calls: ["analyze_talent_profile", "get_talent_profile"]
+    max_steps: 3
+    expected_scenario_id: "profile_analyzed"      # ‹gate: branch›
+    expected_pills: ["Find matching roles", "Update my skills"]   # ‹gate: branch›
+
+- id: profile-completeness-verbose
+  inputs: { question: "Before I start looking at roles, can you check my profile is in good shape?" }
+  metadata: { capability: profile_completeness, input_source: inferred }
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["analyze_talent_profile"]
+    allowed_tool_calls: ["analyze_talent_profile", "get_talent_profile"]
+    max_steps: 3
+    expected_scenario_id: "profile_analyzed"      # ‹gate: branch›
+    expected_pills: ["Find matching roles", "Update my skills"]   # ‹gate: branch›
+
+- id: profile-view-details
+  inputs: { question: "What does my profile show — my role and who my managers are?" }
+  metadata:
+    capability: profile_view
+    input_source: inferred
+    note: "‹verify› may call get_talent_profile (core info/managers) rather than analyze_talent_profile."
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["get_talent_profile"]   # ‹verify trigger vs analyze›
+    allowed_tool_calls: ["get_talent_profile", "analyze_talent_profile"]
+    max_steps: 3
+    response_must_contain: []           # ‹gate: a real manager name / role title from the profile›
+
+# ───────────────────────────────────────────────────────────────────────────
+# #17  View current skills — get_skills
+# ───────────────────────────────────────────────────────────────────────────
+- id: view-skills-canonical
+  inputs: { question: "What skills do I currently have on my profile?" }
+  metadata: { capability: view_skills, input_source: inferred }
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["get_skills"]
+    allowed_tool_calls: ["get_skills", "get_talent_profile"]
+    max_steps: 3
+    expected_scenario_id: "skills_listed"         # ‹gate: only if the profile has skills›
+    expected_pills: ["Find matching roles", "Update my skills", "Show profile gaps"]
+    forbidden_substrings: ["---CONTEXT---", "scenario_id"]
+    response_must_contain: []           # ‹gate: actual skill names from the profile›
+    expected_response: |                # ‹gate → reference only›
+      The user's current top + additional skills, with the total count.
+
+- id: view-skills-paraphrase
+  inputs: { question: "Show me my current skills" }
+  metadata: { capability: view_skills, input_source: figma_adjacent }
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["get_skills"]
+    allowed_tool_calls: ["get_skills", "get_talent_profile"]
+    max_steps: 3
+    expected_scenario_id: "skills_listed"         # ‹gate›
+    expected_pills: ["Find matching roles", "Update my skills", "Show profile gaps"]
+
+- id: view-skills-terse
+  inputs: { question: "my skills?" }
+  metadata: { capability: view_skills, input_source: inferred }
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["get_skills"]
+    allowed_tool_calls: ["get_skills", "get_talent_profile"]
+    max_steps: 3
+
+# ───────────────────────────────────────────────────────────────────────────
+# #18  Suggest skills — suggest_skills (must NOT save)
+# ───────────────────────────────────────────────────────────────────────────
+- id: suggest-skills-figma-pill
+  inputs: { question: "Review my skills to view suggestions" }   # canonical Figma pill
+  metadata: { capability: suggest_skills, input_source: figma }
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["suggest_skills"]
+    allowed_tool_calls: ["suggest_skills", "get_skills", "get_talent_profile"]
+    expected_actions: []                # must NOT save
+    max_steps: 4
+    expected_scenario_id: "skills_review_pending"   # ‹verify pill set in backend pill-scenarios›
+    expected_pills: []                  # ‹gate: confirm from config›
+    forbidden_substrings: ["FULL REPLACE", "optimistic locking", "---CONTEXT---"]
+    response_must_contain: []           # ‹gate›
+
+- id: suggest-skills-paraphrase
+  inputs: { question: "What skills should I add to my profile?" }
+  metadata: { capability: suggest_skills, input_source: inferred }
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["suggest_skills"]
+    allowed_tool_calls: ["suggest_skills", "get_skills", "get_talent_profile"]
+    expected_actions: []
+    max_steps: 4
+
+- id: suggest-skills-improve
+  inputs: { question: "Suggest skills I should add" }
+  metadata: { capability: suggest_skills, input_source: inferred }
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["suggest_skills"]
+    allowed_tool_calls: ["suggest_skills", "get_skills", "get_talent_profile"]
+    expected_actions: []
+    max_steps: 4
+
+# ───────────────────────────────────────────────────────────────────────────
+# #19  Save skills — save_skills fires ONLY on the exact Confirm trigger.
+#      Conversational / granular / non-skill edits MUST deflect (no save).
+# ───────────────────────────────────────────────────────────────────────────
+- id: save-skills-confirm-trigger
+  inputs: { question: "Save these skills to my profile: Java, React, Python, Analytics, P&L" }
+  metadata:
+    capability: save_skills
+    input_source: backend_prompt        # this exact format is emitted by the panel Confirm button
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: ["save_skills"]
+    allowed_tool_calls: ["save_skills"]
+    expected_actions: ["save_skills"]
+    expected_tool_args: {}              # ‹gate: confirm top/additional item shape from a real run; do NOT guess›
+    max_steps: 3
+    expected_scenario_id: "skills_confirmed_offer_matches"
+    expected_pills: ["Yes, show me", "Not now"]
+    forbidden_substrings: ["FULL REPLACE", "optimistic locking", "---CONTEXT---", "scenario_id"]
+    response_must_contain: []           # ‹gate: confirmation wording + updated count›
+
+- id: save-skills-conversational-edit-must-deflect
+  inputs: { question: "Remove all the additional skills, move P&L and Analytical thinking to top skills, and add Java, javascript and react to top skills" }
+  metadata:
+    capability: save_skills
+    input_source: figma
+    note: "Figma showed the agent performing this edit. CURRENT agent must DEFLECT to the right side panel and must NOT call save_skills."
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: []             # no tool should fire
+    allowed_tool_calls: []
+    expected_actions: []                # must NOT save
+    max_steps: 3
+    response_must_contain: []           # ‹gate: should point the user to the side panel›
+
+- id: save-skills-granular-add-must-deflect
+  inputs: { question: "Add Java to my top skills" }
+  metadata:
+    capability: save_skills
+    input_source: backend_prompt
+    note: "Granular edit → deflect to panel, no save."
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]
+    expected_tool_calls: []
+    allowed_tool_calls: []
+    expected_actions: []
+    max_steps: 3
+
+- id: edit-experience-deflect-to-mycareer
+  inputs: { question: "Update my work experience to add my most recent job" }
+  metadata:
+    capability: profile_section_edit
+    input_source: backend_prompt
+    note: "Non-skill section edits are not supported in chat → deflect to MyCareer."
+  expectations:
+    expected_routes: ["talent-profile-management-agent"]   # ‹verify: orchestrator may handle directly›
+    expected_tool_calls: []
+    must_refuse: true
+    expected_redirect: "MyCareer (goto/mycareer) for editing experience/education/etc."
+    max_steps: 3
