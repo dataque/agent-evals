@@ -17,6 +17,7 @@ from .audit_action import AuditLogActionTaken
 from .bias import Bias
 from .conversation import ConversationCompleteness
 from .faithfulness import Faithfulness
+from .followup_pills import FollowupPillsCorrectness
 from .geval import GEval
 from .isolation import CrossUserIsolation
 from .knowledge_retention import KnowledgeRetention
@@ -47,6 +48,7 @@ SCORER_CLASSES: list[type] = [
     Latency,
     TokenCost,
     StreamHealthDetail,
+    FollowupPillsCorrectness,
     CrossUserIsolation,
     UserFeedbackSignal,
     # judged single-turn (Phase 3)
@@ -111,6 +113,7 @@ __all__ = [
     "Latency",
     "TokenCost",
     "StreamHealthDetail",
+    "FollowupPillsCorrectness",
     "CrossUserIsolation",
     "TaskCompletion",
     "Faithfulness",

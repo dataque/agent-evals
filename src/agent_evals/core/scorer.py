@@ -119,3 +119,18 @@ class CaseResult(BaseModel):
     case_id: str
     scores: list[Score] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+INFRASTRUCTURE_TOOLS = ("Task", "emit_followups")
+
+
+def filter_infrastructure(names, config: dict | None = None) -> set[str]:
+    """Drop cross-cutting infrastructure tools — the orchestrator router
+    (``Task``) and the pill emitter (``emit_followups``) — from a tool-name set.
+
+    They appear on nearly every turn but are scored elsewhere (routing by
+    plan_quality #19, pills by #25), so capability tool-selection (#2) and the
+    tool envelope (#19) must exclude them or every case looks wrong. Override the
+    set via ``config['infrastructure_tools']``."""
+    infra = {t.lower() for t in ((config or {}).get("infrastructure_tools") or INFRASTRUCTURE_TOOLS)}
+    return {n for n in names if n and n.lower() not in infra}

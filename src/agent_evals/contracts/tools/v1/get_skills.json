@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "get_skills result",
+  "description": "Mirrors GetSkillsOutput: the user's saved top + additional skills. Tighten item fields after the capture run confirms the real shape.",
+  "type": "object",
+  "required": ["top", "additional"],
+  "additionalProperties": true,
+  "properties": {
+    "top": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "additional": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+  }
+}

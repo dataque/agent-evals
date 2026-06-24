@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "get_talent_profile result",
+  "description": "Mirrors GetTalentProfileOutput (core profile info, email, managers). Lenient pending capture — tighten required fields once the real result shape is observed.",
+  "type": "object",
+  "additionalProperties": true
+}

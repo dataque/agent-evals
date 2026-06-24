@@ -7,7 +7,14 @@ tools). Routes are synthesized by the transport from STEP/Task events.
 
 from __future__ import annotations
 
-from ..core.scorer import Family, Score, ScorerSpec, ScoringContext, TurnScope
+from ..core.scorer import (
+    Family,
+    Score,
+    ScorerSpec,
+    ScoringContext,
+    TurnScope,
+    filter_infrastructure,
+)
 
 
 class PlanQuality:
@@ -32,7 +39,7 @@ class PlanQuality:
             details["routes"] = {"allowed": sorted(allowed), "observed": sorted(observed)}
         if allowed_tools is not None:
             allowed = {str(t) for t in allowed_tools}
-            observed = set(ctx.run.tool_names())
+            observed = filter_infrastructure(ctx.run.tool_names(), ctx.config)
             parts.append((len(observed & allowed) / len(observed)) if observed else (1.0 if not allowed else 0.0))
             details["tools"] = {"allowed": sorted(allowed), "observed": sorted(observed)}
 

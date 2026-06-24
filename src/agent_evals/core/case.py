@@ -34,6 +34,10 @@ class Expectations(BaseModel):
     expected_actions: list[str] | None = None           # #16 audit log / action taken
     expected_artifacts: dict[str, str] | None = None     # {name: schema_id}
 
+    # Follow-up pills (#25 — backend UX contract emitted via emit_followups)
+    expected_scenario_id: str | None = None      # exact scenario_id the turn should emit
+    expected_pills: list[str] | None = None       # exact pill texts (compared order-insensitively)
+
     # Planning / efficiency
     max_steps: int | None = None                 # #18 step efficiency
     expected_routes: list[str] | None = None     # #19 plan quality routing
@@ -62,6 +66,7 @@ class EvalCase(BaseModel):
     expectations: Expectations = Field(default_factory=Expectations)
     scenario: str | None = None
     turns: list[Turn] | None = None
+    requires: list[str] | None = None   # profile-state preconditions (#31); case skipped+reported if unmet
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @property
@@ -94,11 +99,13 @@ class EvalCase(BaseModel):
                 id=id,
                 scenario=inputs.get("scenario"),
                 turns=turns,
+                requires=raw.get("requires"),
                 metadata=metadata,
             )
         return cls(
             id=id,
             question=inputs.get("question", ""),
             expectations=Expectations(**(raw.get("expectations", {}) or {})),
+            requires=raw.get("requires"),
             metadata=metadata,
         )

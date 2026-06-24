@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from ..core.aggregate import precision_recall_f1
-from ..core.scorer import Family, Score, ScorerSpec, ScoringContext, TurnScope
+from ..core.scorer import (
+    Family,
+    Score,
+    ScorerSpec,
+    ScoringContext,
+    TurnScope,
+    filter_infrastructure,
+)
 
 
 class ToolSelectionAccuracy:
@@ -21,8 +28,8 @@ class ToolSelectionAccuracy:
         expected = ctx.expectations.expected_tool_calls
         if expected is None:
             return Score.skip(self.spec.metric, "no expected_tool_calls in expectations")
-        observed = set(ctx.run.tool_names())
-        exp = set(expected)
+        observed = filter_infrastructure(ctx.run.tool_names(), ctx.config)
+        exp = filter_infrastructure(expected, ctx.config)
         precision, recall, fv = precision_recall_f1(exp, observed)
         return Score(
             metric=self.spec.metric,

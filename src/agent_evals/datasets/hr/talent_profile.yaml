@@ -63,16 +63,19 @@
     expected_pills: ["Find matching roles", "Update my skills"]   # ‹gate: branch›
 
 - id: profile-view-details
+  requires: [profile_complete]
   inputs: { question: "What does my profile show — my role and who my managers are?" }
   metadata:
     capability: profile_view
     input_source: inferred
-    note: "‹verify› may call get_talent_profile (core info/managers) rather than analyze_talent_profile."
+    note: "CAPTURE: this phrasing calls analyze_talent_profile (scenario profile_analyzed), NOT get_talent_profile — the agent never calls get_talent_profile directly. SME review later: should 'my managers' have its own path?"
   expectations:
     expected_routes: ["talent-profile-management-agent"]
-    expected_tool_calls: ["get_talent_profile"]   # ‹verify trigger vs analyze›
-    allowed_tool_calls: ["get_talent_profile", "analyze_talent_profile"]
+    expected_tool_calls: ["analyze_talent_profile"]
+    allowed_tool_calls: ["analyze_talent_profile", "get_talent_profile"]
     max_steps: 3
+    expected_scenario_id: "profile_analyzed"
+    expected_pills: ["Find matching roles", "Update my skills"]
     response_must_contain: []           # ‹gate: a real manager name / role title from the profile›
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -80,7 +83,8 @@
 # ───────────────────────────────────────────────────────────────────────────
 - id: view-skills-canonical
   inputs: { question: "What skills do I currently have on my profile?" }
-  metadata: { capability: view_skills, input_source: inferred }
+  # illustrative production feedback so #23 (user feedback signal) is exercised end-to-end
+  metadata: { capability: view_skills, input_source: inferred, user_feedback: { rating: 0.9 } }
   expectations:
     expected_routes: ["talent-profile-management-agent"]
     expected_tool_calls: ["get_skills"]
@@ -125,8 +129,8 @@
     allowed_tool_calls: ["suggest_skills", "get_skills", "get_talent_profile"]
     expected_actions: []                # must NOT save
     max_steps: 4
-    expected_scenario_id: "skills_review_pending"   # ‹verify pill set in backend pill-scenarios›
-    expected_pills: []                  # ‹gate: confirm from config›
+    expected_scenario_id: "skills_review_pending"   # ‹verify against backend pill-scenarios›
+    # expected_pills: ‹gate: confirm the exact pill set from the capture / pill-scenarios›
     forbidden_substrings: ["FULL REPLACE", "optimistic locking", "---CONTEXT---"]
     response_must_contain: []           # ‹gate›
 

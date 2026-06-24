@@ -71,6 +71,19 @@ class Runner:
         all_runs: list[RunRecord] = []
         try:
             for case in cases:
+                skip = self._precondition_skip(case)
+                if skip is not None:
+                    result = CaseResult(
+                        case_id=case.id,
+                        scores=[skip],
+                        metadata={**dict(case.metadata),
+                                  "precondition_skipped": True,
+                                  "skip_reason": skip.skip_reason,
+                                  "requires": list(case.requires or [])},
+                    )
+                    self.sink.log_case_result(result, [])
+                    case_results.append(result)
+                    continue
                 runs = self._drive_case(case)
                 all_runs.extend(runs)
                 result = self._score_case(case, runs)
@@ -91,6 +104,29 @@ class Runner:
             rec.turn_index = ti
             runs.append(rec)
         return runs
+
+    def _precondition_skip(self, case: EvalCase) -> Score | None:
+        """Skip a case whose profile-state precondition isn't met (#31).
+
+        ``config['profile_state']`` is a dict of known facts (e.g.
+        ``{'has_matched_requisitions': True}``). When it is absent (e.g. the
+        transcript-capture run) nothing is filtered — every case runs. When it
+        is present, a case ``requires:`` every listed fact to be truthy, else it
+        is skipped with an explicit, reported reason (never silently)."""
+        requires = case.requires
+        if not requires:
+            return None
+        state = self.config.get("profile_state")
+        if not state:
+            return None
+        unmet = [f for f in requires if not state.get(f)]
+        if unmet:
+            return Score.skip(
+                "precondition",
+                f"profile-state precondition unmet: {unmet}",
+                requires=list(requires), unmet=unmet,
+            )
+        return None
 
     def _score_case(self, case: EvalCase, runs: list[RunRecord]) -> CaseResult:
         scores: list[Score] = []
@@ -124,9 +160,13 @@ class Runner:
 
         by_metric: dict[str, list[float]] = defaultdict(list)
         passes: dict[str, list[bool]] = defaultdict(list)
+        errors: dict[str, int] = defaultdict(int)
         for cr in case_results:
             for s in cr.scores:
-                if s.skipped or s.error is not None:
+                if s.error is not None:
+                    errors[s.metric] += 1
+                    continue
+                if s.skipped:
                     continue
                 if s.value is not None:
                     by_metric[s.metric].append(s.value)
@@ -142,6 +182,17 @@ class Runner:
         for metric, flags in passes.items():
             if flags:
                 agg[f"{metric}.pass_rate"] = sum(1 for f in flags if f) / len(flags)
+        # visibility: a metric that errored (e.g. a failing judge) must never
+        # just vanish from the summary — surface its error count.
+        for metric, n in errors.items():
+            agg[f"{metric}.errors"] = float(n)
+        # case-level coverage + precondition skips (reported, never silent).
+        if case_results:
+            pc_skipped = sum(1 for cr in case_results if cr.metadata.get("precondition_skipped"))
+            agg["cases.total"] = float(len(case_results))
+            agg["cases.scored"] = float(len(case_results) - pc_skipped)
+            if pc_skipped:
+                agg["cases.skipped_precondition"] = float(pc_skipped)
 
         # operational: latency distribution across all runs
         ttfts = [r.timing.ttft_ms for r in all_runs]

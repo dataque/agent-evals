@@ -71,7 +71,7 @@ def test_tool_result_schema_adherence():
     bad = ToolResultSchemaAdherence().score(_ctx(invalid))
     assert bad.value == 0.0 and bad.details["failures"]
     # tool with no registered schema -> skipped
-    assert ToolResultSchemaAdherence().score(_ctx(_run(tool_calls=[_tc("get_skills", result={})]))).skipped
+    assert ToolResultSchemaAdherence().score(_ctx(_run(tool_calls=[_tc("unregistered_tool", result={})]))).skipped
 
 
 # ---- #16 audit / action taken ---------------------------------------------
