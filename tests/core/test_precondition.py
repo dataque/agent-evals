@@ -83,3 +83,20 @@ def test_errored_scorer_is_visible_not_silent():
     report = _runner([_BoomScorer()]).run([_case("c1")], run_name="t")
     assert report.aggregates["boom.errors"] == 1.0     # surfaced, not dropped
     assert "boom.mean" not in report.aggregates
+
+
+class _HalfScorer:
+    spec = ScorerSpec(metric="half", number=97, title="half", family=Family.JUDGE)
+    def score(self, ctx): return Score(metric="half", value=0.6).with_threshold(0.9)  # default → fail
+
+
+def test_config_threshold_overrides_pass_fail():
+    # default threshold 0.9 → 0.6 fails
+    r1 = Runner(session_factory=_Driver, scorers=[_HalfScorer()], sink=_NullSink(), config={}).run(
+        [_case("c")], run_name="t")
+    assert r1.case_results[0].scores[0].passed is False
+    # calibration threshold 0.5 → 0.6 now passes (#28)
+    r2 = Runner(session_factory=_Driver, scorers=[_HalfScorer()], sink=_NullSink(),
+                config={"thresholds": {"half": 0.5}}).run([_case("c")], run_name="t")
+    assert r2.case_results[0].scores[0].passed is True
+    assert r2.case_results[0].scores[0].threshold == 0.5

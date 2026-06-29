@@ -155,6 +155,14 @@ class Runner:
             except Exception as exc:  # a scorer must never abort the run
                 logger.exception("scorer %s failed on case %s", spec.metric, case.id)
                 scores.append(Score.failed(spec.metric, f"{type(exc).__name__}: {exc}"))
+        # Per-metric pass thresholds from calibration config (#28) override the
+        # scorer's default, so the SME can tune pass/fail without code changes.
+        thresholds = self.config.get("thresholds") or {}
+        if thresholds:
+            for s in scores:
+                t = thresholds.get(s.metric)
+                if t is not None and s.value is not None and not s.skipped and s.error is None:
+                    s.with_threshold(float(t))
         return CaseResult(case_id=case.id, scores=scores, metadata=dict(case.metadata))
 
     def _aggregate(self, case_results: list[CaseResult], all_runs: list[RunRecord]) -> dict[str, Any]:
