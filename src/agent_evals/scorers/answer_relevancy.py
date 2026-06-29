@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..core.scorer import Family, Score, ScorerSpec, ScoringContext, TurnScope
-from ._judge_base import judged, require_text, resolve_judge
+from ._judge_base import judged, require_text, resolve_judge, turn_context
 
 _CRITERIA = (
     "Is the RESPONSE relevant and directly responsive to the QUESTION? "
@@ -29,4 +29,5 @@ class AnswerRelevancy:
         if (skip := require_text(ctx, self.spec.metric)):
             return skip
         return judged(self.spec.metric, judge, criteria=_CRITERIA,
-                      response=ctx.run.assistant_text, question=ctx.question)
+                      response=ctx.run.assistant_text, question=ctx.question,
+                      context=turn_context(ctx))

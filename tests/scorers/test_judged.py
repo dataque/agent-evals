@@ -94,6 +94,14 @@ def test_reference_free_judges_skip_on_empty_text():
     assert TopicAdherence().score(_ctx(_run(), judge=j)).value == 0.8
 
 
+def test_task_completion_skips_must_refuse():
+    # a correct refusal isn't "task completion" — refusal_correctness (#9) owns it
+    j = HeuristicJudge(fixed_score=1.0)
+    s = TaskCompletion().score(_ctx(_run(assistant_text="I can't help with that."),
+                                    judge=j, must_refuse=True))
+    assert s.skipped and "refus" in (s.skip_reason or "").lower()
+
+
 def test_token_cost_is_operational():
     s = TokenCost().score(_ctx(_run()))
     assert s.value is None and s.details["source"] in ("estimated", "reported", "unknown")

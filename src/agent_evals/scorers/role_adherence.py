@@ -7,7 +7,7 @@ orchestrator's system-prompt file; a generic default is used otherwise.
 from __future__ import annotations
 
 from ..core.scorer import Family, Score, ScorerSpec, ScoringContext, TurnScope
-from ._judge_base import judged, require_text, resolve_judge
+from ._judge_base import judged, require_text, resolve_judge, turn_context
 
 DEFAULT_PERSONA = (
     "A professional, helpful career/HR assistant for an enterprise platform. "
@@ -38,4 +38,5 @@ class RoleAdherence:
             f"PERSONA:\n{persona}\nScore 1.0 = fully in persona, lower for tone/role breaks."
         )
         return judged(self.spec.metric, judge, criteria=criteria,
-                      response=ctx.run.assistant_text, question=ctx.question)
+                      response=ctx.run.assistant_text, question=ctx.question,
+                      context=turn_context(ctx))

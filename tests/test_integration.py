@@ -88,8 +88,7 @@ def test_full_run_over_hr_suite_no_scorer_errors():
         assert agg["tokens.estimated_fraction"] == 1.0
         # judged + golden-driven metrics that were previously skipped now run
         assert "topic_adherence.mean" in agg          # judge on non-empty text
-        assert "answer_equivalence.mean" in agg       # expected_response now present (#6)
-        assert "user_feedback_signal.mean" in agg     # metadata.user_feedback now present (#23)
+        assert "user_feedback_signal.mean" in agg     # metadata.user_feedback present (#23)
 
         run_dir = Path(tmp) / "it"
         for f in ("cases.jsonl", "runs.jsonl", "scores.jsonl", "summary.json", "params.json"):

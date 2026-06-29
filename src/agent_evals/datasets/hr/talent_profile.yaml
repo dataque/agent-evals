@@ -25,8 +25,7 @@
     expected_pills: ["Find matching roles", "Update my skills"]   # ‹gate: ["I've updated my profile"] if not_set_up›
     forbidden_substrings: ["---CONTEXT---", "scenario_id", "emit_followups"]
     response_must_contain: []           # ‹gate: real % and/or a true missing-section name›
-    expected_response: |                # ‹gate → reference only, never exact-match›
-      The completion % + which sections are still missing + what to add.
+    # no expected_response — goldens are data-independent (answer_equivalence #6 retired)
 
 - id: profile-completeness-missing-sections
   inputs: { question: "What's missing from my profile?" }
@@ -94,8 +93,6 @@
     expected_pills: ["Find matching roles", "Update my skills", "Show profile gaps"]
     forbidden_substrings: ["---CONTEXT---", "scenario_id"]
     response_must_contain: []           # ‹gate: actual skill names from the profile›
-    expected_response: |                # ‹gate → reference only›
-      The user's current top + additional skills, with the total count.
 
 - id: view-skills-paraphrase
   inputs: { question: "Show me my current skills" }

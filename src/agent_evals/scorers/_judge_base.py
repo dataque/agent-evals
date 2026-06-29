@@ -35,6 +35,19 @@ def transcript(runs: list[RunRecord], *, limit: int = 6000) -> str:
     return text[:limit]
 
 
+def turn_context(ctx: ScoringContext) -> str | None:
+    """Grounding for a SINGLE-turn judge so it doesn't misjudge multi-turn / tool
+    turns: the conversation BEFORE this turn (so recall isn't read as fabrication)
+    + the tool outputs this turn (so a tool-driven result isn't read as 'not done')."""
+    parts: list[str] = []
+    if ctx.turn_index > 0:
+        parts.append("EARLIER IN THIS CONVERSATION:\n" + transcript(ctx.runs[: ctx.turn_index]))
+    tools = tool_context(ctx.run)
+    if tools:
+        parts.append("TOOL OUTPUTS THIS TURN:\n" + tools)
+    return "\n\n".join(parts) or None
+
+
 def require_text(ctx: ScoringContext, metric: str) -> Score | None:
     if not (ctx.run.assistant_text or "").strip():
         return Score.skip(metric, "empty assistant text")

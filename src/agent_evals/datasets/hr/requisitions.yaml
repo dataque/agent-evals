@@ -18,8 +18,6 @@
     expected_pills: ["Show more", "Align to my preferences"]
     forbidden_substrings: ["---CONTEXT---", "scenario_id"]
     response_must_contain: []      # ‹gate: a real matched role title›
-    expected_response: |           # ‹gate → reference only›
-      A short list of suggested internal roles (title / level / area) and why they fit.
 
 - id: find-roles-canonical-no-matches
   requires: [no_matched_requisitions]

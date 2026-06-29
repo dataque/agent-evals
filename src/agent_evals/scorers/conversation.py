@@ -9,8 +9,10 @@ from ._judge_base import judged, resolve_judge, transcript
 _CRITERIA = (
     "Below is a full multi-turn CONVERSATION between a user and an assistant. "
     "Did the assistant address every distinct user intent/request across the "
-    "whole conversation? Score 1.0 if every user request received a relevant "
-    "response, lower if any intent was dropped or ignored."
+    "whole conversation? A correct refusal or redirect of an out-of-scope, "
+    "unsafe, or unsupported request COUNTS as appropriately addressing that "
+    "intent. Score 1.0 if every user request received an appropriate response, "
+    "lower only if an in-scope intent was dropped or ignored."
 )
 
 

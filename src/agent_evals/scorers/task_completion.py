@@ -4,7 +4,7 @@ considering the response and any tool actions taken? Golden is optional."""
 from __future__ import annotations
 
 from ..core.scorer import Family, Score, ScorerSpec, ScoringContext, TurnScope
-from ._judge_base import judged, resolve_judge, tool_context
+from ._judge_base import judged, resolve_judge, turn_context
 
 _CRITERIA = (
     "Did the assistant fully accomplish the user's goal for this turn? "
@@ -29,6 +29,9 @@ class TaskCompletion:
         judge = resolve_judge(self, ctx)
         if judge is None:
             return Score.skip(self.spec.metric, "no judge configured")
+        if ctx.expectations.must_refuse:
+            # a correct refusal is NOT "task completion" — refusal_correctness (#9) owns these
+            return Score.skip(self.spec.metric, "must_refuse case — outcome judged by refusal_correctness (#9)")
         run = ctx.run
         if not (run.assistant_text or "").strip() and not run.tool_calls:
             return Score.skip(self.spec.metric, "no response or tool actions to judge")
@@ -36,6 +39,6 @@ class TaskCompletion:
             self.spec.metric, judge, criteria=_CRITERIA,
             response=run.assistant_text or "(no text; tool-only turn)",
             question=ctx.question,
-            context=tool_context(run) or None,
+            context=turn_context(ctx),
             reference=ctx.expectations.expected_response,
         )

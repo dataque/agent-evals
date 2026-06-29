@@ -38,8 +38,10 @@ def test_bundled_hr_suite_has_no_golden_gaps():
     cases = load_suite("hr")
     seen_exp: set[str] = set()
     seen_meta: set[str] = set()
+    # expected_response is intentionally NOT used — goldens are data-independent
+    # (no pinned answers), so answer_equivalence (#6) is retired for this eval.
     golden_fields = (
-        "expected_response", "response_must_contain", "forbidden_substrings",
+        "response_must_contain", "forbidden_substrings",
         "expected_tool_calls", "expected_tool_args", "allowed_tool_calls",
         "expected_actions", "max_steps", "expected_routes", "remembered_facts",
         "must_refuse", "expected_redirect", "other_user_id", "rubric",
@@ -51,7 +53,7 @@ def test_bundled_hr_suite_has_no_golden_gaps():
                 if getattr(turn.expectations, field) is not None:
                     seen_exp.add(field)
 
-    for field in ("expected_tool_args", "expected_response", "rubric", "must_refuse", "expected_routes"):
+    for field in ("expected_tool_args", "rubric", "must_refuse", "expected_routes"):
         assert field in seen_exp, f"golden gap remains: {field}"
     assert "user_feedback" in seen_meta, "golden gap remains: metadata.user_feedback (#23)"
 
