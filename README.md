@@ -1,5 +1,6 @@
 # agent-evals
 
+A generic, framework-independent evaluation system for agentic chat systems.
 It drives an agent over its live wire protocol, normalizes every run into a
 transport-neutral **`RunRecord`**, and scores it against the metric catalog in
 [`docs/metrics.md`](docs/metrics.md). MLflow is the first metrics backend, but
@@ -51,12 +52,13 @@ Per-developer values (your user login id, tokens, judge keys) go in a gitignored
 `${VAR}` — e.g. `user_login_id: "${AGENT_EVALS_USER_LOGIN_ID}"`. So set
 `AGENT_EVALS_USER_LOGIN_ID=<your real login id>` in `.env` before running.
 
-> Going beyond a smoke run? [`docs/evaluation-setup.md`](docs/evaluation-setup.md)
-> is the reference for turning a working harness into a complete eval program —
-> dataset, tool contracts, judge calibration, and operationalization.
+> [`docs/evaluation-setup.md`](docs/evaluation-setup.md) is the reference for
+> authoring/extending the dataset, judge calibration, and operating the eval;
+> [`BASELINE.md`](BASELINE.md) is the frozen reference run, and agent defects the
+> eval surfaced are in [`docs/agent-findings.md`](docs/agent-findings.md).
 
 ```bash
-# List the 24 implemented metrics
+# List the implemented metrics
 agent-evals list-metrics
 
 # Run a suite against a target (see src/agent_evals/config/targets.yaml).
@@ -70,11 +72,11 @@ agent-evals run --target local --suite hr --metrics deterministic
 agent-evals run --target local --suite ./my_suite.yaml \
   --metrics tool_selection_accuracy,faithfulness,latency --sink mlflow
 
+# Full judged run — all metrics + the LLM judge (the baseline command):
+agent-evals run --target local --suite hr --metrics all --judge azure_openai --sink jsonl
+
 # Ingest production user-feedback (#23) as an offline aggregate:
 agent-evals ingest-feedback --input feedback.jsonl --sink jsonl
-
-#all
-agent-evals run --target local --suite hr --metrics all --judge azure_openai --sink jsonl
 ```
 
 `--metrics` accepts `all`, `primary` (#1–15), `secondary` (#16–24), a family
@@ -144,7 +146,6 @@ itself errors), and the **backend build/commit under test**. The TLS/proxy
 reasoning lives in [`docs/troubleshooting.md`](docs/troubleshooting.md); the full
 setup path is in [`docs/evaluation-setup.md`](docs/evaluation-setup.md).
 
-
 ### Viewing results
 
 **JSONL sink** (default) writes to `eval-runs/<run-name>/`: `summary.json`
@@ -190,7 +191,13 @@ In the UI, open the **`agent-evals`** experiment → your run (`<suite>-<target>
 
 ## Status
 
-All 24 in-scope metrics from `docs/metrics.md` are implemented (the Excluded
-retrieval metrics are N/A — no retriever). Test suite runs fully offline (the transport is
-verified against a mock backend reproducing the exact AG-UI/SSE wire contract);
-the live smoke test runs against a real backend when `AGENT_EVALS_LIVE_URL` is set.
+All in-scope metrics from `docs/metrics.md` are implemented (the Excluded
+retrieval metrics are N/A — no retriever). The eval is **data-independent** — it
+asserts behaviour, not specific records, so the same suite runs across
+environments; data-dependent cases self-skip per run and are reported in the
+summary. A calibrated reference run is frozen as `baseline-v1` (see
+[`BASELINE.md`](BASELINE.md)).
+
+The test suite runs fully offline (the transport is verified against a mock
+backend reproducing the exact AG-UI/SSE wire contract); the live smoke test runs
+against a real backend when `AGENT_EVALS_LIVE_URL` is set.

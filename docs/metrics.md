@@ -1,5 +1,16 @@
 
 
+# Metrics catalog
+
+## 1. Overview
+
+The metrics this eval implements, with cross-framework equivalents (DeepEval,
+Ragas, MLflow, OpenAI Evals, Azure AI Foundry). 24 in-scope metrics (§3–§5) plus
+one product-specific UX metric (#25, follow-up pills); retrieval metrics (§6) are
+N/A — the agent has no retriever. The eval is **data-independent**: goldens
+assert behaviour, not specific records, so reference-answer metrics like #6
+(Answer Equivalence) are available but not exercised by the bundled HR suite.
+
 ## 2. Legend
 
 - **# (Prod Project Impact rank)** — primary ordering used for prioritization in production.
@@ -54,6 +65,7 @@
 | 22 | String Check / Must-Contain | `string_check` (OpenAI); substring presence | Substring presence / absence | Single | Yes | No | L | Custom `@scorer` |
 | 23 | **User Feedback Signal** *(new)* | Implicit feedback; thumbs / RLHF data; CSAT for chat | Per-message thumbs / correction collected from production users | Both | No | No | L | Operational (custom data pipeline) |
 | 24 | **Stream Health Detail** *(new, subset of #13)* | Protocol invariant check; SSE stream integrity | Per-event-type latency, ordering invariants, snapshot integrity | Both | No | No | L | Custom `@scorer` |
+| 25 | **Follow-up Pills Correctness** *(new, product UX contract)* | Suggestion-chip / quick-reply correctness | Emitted follow-up `scenario_id` + exact pill set match the backend's pill contract | Single | No (config) | No | L | Custom `@scorer` |
 
 ---
 

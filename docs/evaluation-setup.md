@@ -1,152 +1,100 @@
-# Building a complete evaluation
+# Authoring, calibrating, and operating the eval
 
-This guide takes you from *"the harness runs against the backend"* to a
-**trustworthy, repeatable evaluation program** — using the HR agent (the BFF
-backend's chat agent) as the worked example. The same steps apply to any agent
-the framework drives.
+How the eval is built and how to change it. The harness, dataset, calibrated
+judges, and a frozen baseline already exist — this is the reference for extending
+them. For running mechanics see the [README](../README.md); for the metric
+catalog, [metrics.md](metrics.md); for the frozen reference run,
+[../BASELINE.md](../BASELINE.md).
 
-Getting the plumbing working (transport, auth, thread creation, TLS, judge
-connectivity) is covered elsewhere — the [README](../README.md) for running
-against the backend, and [troubleshooting.md](troubleshooting.md) for the
-judge/TLS/proxy issues. **This doc is what to build *on top of* that** so the
-numbers are meaningful and the eval is something you can run on every change.
+## Data-independence (the core principle)
 
-> The metric catalog these phases reference is [docs/metrics.md](metrics.md).
+The eval runs against multiple environments (dev/UAT/prod) whose data differs, so
+it must not depend on seeded/frozen records. Goldens assert **behaviour**, not
+specific data:
 
-## Prerequisites — one clean run
+- **Structural / behavioural goldens** — tool selection, routing, follow-up pill
+  scenario + set (fixed UX strings), refusals/redirects, schema adherence,
+  no-leakage, and judge metrics graded against whatever the tools returned. These
+  hold in any environment.
+- **No pinned data** — never hard-code requisition ids, recruiter names, role
+  titles, specific skills, or a reference answer. (Answer Equivalence #6 is unused
+  here for exactly this reason — it needs a pinned golden answer.)
+- **Per-run facts** — whether an environment has matched requisitions / a complete
+  profile / saved skills is derived from each run's tool results
+  (`datasets/facts.py`), not configured. A case declares `requires:` a fact; if the
+  run doesn't satisfy it, the case is **skipped and reported** (`cases.skipped_precondition`
+  + `skipped_cases` in the summary), never silently dropped.
 
-Before this guide helps, a single run must complete end-to-end:
+A baseline is therefore **per-environment** for absolute scores; the
+data-independent metrics are the **cross-environment contract**.
 
-```bash
-agent-evals run --target local --suite hr --metrics all --judge azure_openai --sink jsonl
-```
+## What each metric needs from the dataset
 
-You should see `summary.json` with `latency.abort_rate ≈ 0` **and** the nine
-LLM-judge metrics present (`task_completion`, `faithfulness`, `safety`, …). If
-judged metrics are missing, the judge is failing silently — see
-[troubleshooting.md](troubleshooting.md) and read `scores.jsonl`.
-
----
-
-## Phase A — Validate the baseline
-
-1. **Confirm every metric populates** in `summary.json` (a missing metric = it
-   failed or was skipped; the real reason is in `scores.jsonl`).
-2. **Sanity-check the verdicts.** Open `runs.jsonl` (full transcripts) and
-   `scores.jsonl` (per-case scores) and read 5–10 cases by hand: do the
-   faithfulness / safety / relevancy judgements actually match the transcript?
-   This is your calibration baseline — if the judge is obviously wrong here,
-   fix Phase B.3 before trusting any aggregate.
-
-## Phase B — Make the eval *content* real (the substance)
-
-This is where most of the work is. The bundled `datasets/hr/` is a small
-**example**, not a real suite.
-
-### B.1 Build a representative dataset
-Expand `datasets/hr/` to cover each capability with enough volume to be
-statistically meaningful:
-- **Per tool / subagent:** profile management (`get_skills`, `suggest_skills`,
-  `get_talent_profile`, `analyze_talent_profile`, `save_skills`), requisition
-  matching (`suggest_requisitions`, `view_requisition`), recruiter outreach
-  (`draft_message`), and free-form career guidance.
-- **Multi-turn scenarios** — required for conversation-completeness (#10) and
-  knowledge-retention (#11).
-- **Adversarial probes** — refusal (`must_refuse`, `expected_redirect`),
-  cross-user isolation (`other_user_id`), and forbidden content
-  (`forbidden_substrings`).
-- **Golden expectations** wherever the outcome is deterministic
-  (`expected_tool_calls`, `expected_tool_args`, `expected_routes`,
-  `response_must_contain`, `remembered_facts`).
-
-Curate with an HR subject-matter expert and version the suite.
-
-### B.2 Complete the tool contracts
-`tool_result_schema_adherence` (#4) only checks tools that have a registered
-schema in `contracts/tools/v1/`. Any tool the agent calls without one is silently
-skipped. Add a JSON Schema per tool, mirroring the **real frontend/backend result
-shape**, so the contract check is actually covering your tools.
-
-### B.3 Calibrate the judges
-Out of the box the judge criteria are generic. For trustworthy scores:
-- **Set the persona** in `targets.yaml` (`scoring.persona`) from the
-  orchestrator's system prompt — this is what role-adherence (#21) judges against.
-- **Tighten `scoring.topic_scope`** and per-metric criteria for the talent domain.
-- **Set pass thresholds** per metric and a `scoring.latency_total_sla_ms`.
-- **Pin the judge model** (deployment + api-version) so verdicts are stable.
-- **Validate judge ↔ human agreement** on a labelled sample before trusting
-  aggregates. Use `judges/benchmark.py:compare_judges` to A/B backends, and
-  `judge.per_metric` in `targets.yaml` to route specific metrics to specific
-  judges.
-
-### B.4 Pin a deterministic test identity
-The agent serves **only the caller's own profile** (resolved from the JWT user
-login id), so your golden expectations depend on that profile's data. Use a
-**fixed test login id whose profile is stable/seeded** — otherwise goldens drift
-run-to-run.
-
-## Phase C — Operationalize
-
-### C.1 Capture a reproducible environment
-Record what made the run work — `SSL_CERT_FILE`, lowercase `no_proxy` (incl. the
-Azure host), `AGENT_EVALS_USER_LOGIN_ID`, `AGENT_EVALS_*_BASE_URL`, judge
-`AZURE_OPENAI_*`, and the **backend build/commit under test** — in `.env` plus a
-short runbook, so anyone can reproduce the exact run.
-
-### C.2 Track runs and define gates
-Run `--sink mlflow` against a **durable** tracking store (not the ephemeral
-`./mlruns`) so runs are comparable over time. Pick north-star aggregates
-(task_completion / faithfulness / safety pass-rates, `latency.*.p95`,
-`abort_rate`) and turn them into **fail-the-build gates**.
-
-### C.3 Automate
-Schedule it where the network can reach **both** the backend and the judge —
-which, given the private-endpoint constraints, generally means **in-pod**. A
-smoke subset (`--limit` / a small `--metrics` set) pre-merge, the full suite
-nightly / per-release.
-
-## Phase D — Harden (HR-critical)
-
-- **Safety / PII depth.** The agent handles sensitive profile and compensation
-  data — add explicit PII-leak, prompt-injection, and cross-user-refusal cases
-  beyond the example probe.
-- **Side-effect verification.** Audit/action (#16) only proves a mutating tool
-  (`save_skills`) ran with `ok` status, not that the datastore actually changed.
-  Add a post-run verifier if you need real persistence assurance.
-- **Know the SSE approximations.** Token/cost (#14) is *estimated* on SSE
-  (`usage.source = estimated`) and subagent routes (#19) are *synthesized* from
-  `STEP_*`/`Task` events. Accept them, or wire real signals from the backend.
-
----
-
-## What each metric needs from you
-
-| You provide | Where | Metrics it unlocks |
+| Provide | Where | Metrics it drives |
 |---|---|---|
-| `expected_tool_calls`, `expected_tool_args`, `expected_routes`, `allowed_tool_calls`, `max_steps` | dataset case | tool selection (#2), tool args (#3), plan quality (#19), step efficiency (#18) |
-| `expected_response`, `response_must_contain` | dataset case | answer equivalence (#6), task completion (#1), string check (#22) |
-| `must_refuse`+`expected_redirect`, `other_user_id`, `forbidden_substrings`, `remembered_facts`, `expected_actions` | dataset case | refusal (#9), isolation (#8), safety (#7), knowledge retention (#11), audit/action (#16) |
-| tool result JSON Schemas | `contracts/tools/v1/` | tool result schema (#4), stream health (#24) |
-| `persona`, `topic_scope`, rubric, thresholds, latency SLA | `targets.yaml` (`scoring`/`judge`) | role adherence (#21), topic (#12), G-Eval (#17), pass/fail + latency (#13) |
-| a reachable LLM judge | `--judge` + env | faithfulness (#5), bias (#15), relevancy (#20), task completion (#1), conversation completeness (#10) |
-| production feedback export | `agent-evals ingest-feedback` | user-feedback signal (#23) |
-| *(nothing — automatic from the stream)* | — | latency (#13), token/cost (#14, estimated), stream health (#24) |
+| `expected_tool_calls`, `expected_tool_args`, `allowed_tool_calls`, `expected_routes`, `max_steps` | case | tool selection (#2), tool args (#3), plan quality (#19), step efficiency (#18) |
+| `expected_scenario_id`, `expected_pills` | case | follow-up pills (#25) |
+| `response_must_contain`, `forbidden_substrings` | case | string check (#22), safety negative-check (#7) |
+| `must_refuse` + `expected_redirect`, `other_user_id` | case | refusal (#9), cross-user isolation (#8) |
+| `expected_actions` | case | audit / action taken (#16) |
+| `remembered_facts` | multi-turn case | knowledge retention (#11) |
+| `rubric` | case | G-Eval (#17) |
+| `requires` + tool result JSON Schemas | case + `contracts/tools/v1/` | precondition skip; schema adherence (#4) |
+| `persona`, `topic_scope`, `thresholds`, `latency_total_sla_ms` | `targets.yaml` `scoring` | role adherence (#21), topic (#12), pass/fail, latency (#13) |
+| a reachable LLM judge | `--judge` + env | faithfulness (#5), safety (#7), relevancy (#20), task completion (#1), conversation completeness (#10), bias (#15) |
+| *(automatic from the stream)* | — | latency (#13), token/cost (#14, estimated on SSE), stream health (#24) |
 
-## Definition of done
+## Authoring & extending the dataset
 
-A genuinely functioning eval = **Phase A + Phase B + C.1–C.2**: a clean run, a
-real dataset with goldens, complete contracts, calibrated judges, a fixed test
-identity, a reproducible env, and tracked runs with gates. Phase C.3 and Phase D
-are hardening you can layer in once the core is trustworthy.
+The suite is `datasets/hr/*.yaml`, one file per capability cluster (every `*.yaml`
+in the directory loads as the `hr` suite). A case is single-turn
+(`inputs.question`) or multi-turn (`inputs.turns[]`); `requires:` gates it on
+run-derived facts. To add coverage:
 
-### Checklist
+- **A capability** → cases asserting the right tool/route + the pill scenario;
+  keep assertions structural (no pinned data).
+- **A context-dependent capability** (needs a role/draft established by a prior
+  turn) → a multi-turn journey (see `journeys.yaml`), not a single-turn case.
+- **A tool the agent calls** → its result JSON Schema in `contracts/tools/v1/`, so
+  #4 covers it (an uncontracted tool is silently skipped).
+- **A guardrail** → an adversarial case authored by intent (`must_refuse`,
+  `other_user_id`, `forbidden_substrings`), never captured from current output.
 
-- [ ] One clean run; all metrics populate; verdicts sanity-checked against transcripts
-- [ ] Dataset covers every tool/subagent, multi-turn, and adversarial probes, with goldens
-- [ ] A tool contract for every tool the agent calls
-- [ ] Persona, topic scope, thresholds, and latency SLA set; judge model pinned; judge validated vs humans
-- [ ] Fixed test login id with seeded/stable profile data
-- [ ] Reproducible `.env` + runbook; backend build under test recorded
-- [ ] Durable MLflow tracking store; north-star gates defined
-- [ ] Scheduled in-pod (smoke pre-merge, full nightly)
-- [ ] Safety/PII coverage; mutation side-effects verified (optional)
+## Judge calibration
+
+The default judge criteria are generic; calibration tunes them to the domain and
+to human agreement. Configured in `targets.yaml` `scoring`:
+
+- **persona** (role adherence #21) and **topic_scope** (#12), derived from the
+  orchestrator's system prompt — including the legitimate product affordances, so
+  the judge doesn't penalize them as fabrication.
+- **thresholds** — per-metric pass/fail; deterministic at 1.0, judge metrics tuned
+  against a human-labelled sample (safety/refusal stricter).
+- Judges receive **conversation history + tool outputs** as context (so recall and
+  tool-/card-delivered results aren't misjudged), and metrics that don't apply to
+  a refusal (task completion, faithfulness) **skip `must_refuse` cases** — refusal
+  correctness (#9) owns those.
+
+To recalibrate: run `--judge azure_openai`, read the judge rationales in
+`scores.jsonl` against the transcripts, adjust criteria/thresholds until the
+verdicts match human judgement, then re-freeze the baseline.
+
+## Operating the eval
+
+- **Run:** `agent-evals run --target <env> --suite hr --metrics all --judge azure_openai`.
+- **Compare:** against [`BASELINE.md`](../BASELINE.md). In the same environment a
+  drop in an anchor is a regression; across environments the data-independent
+  metrics are the gate.
+- **Track over time:** `--sink mlflow` against a durable tracking store; turn
+  north-star aggregates (faithfulness/safety pass-rates, `latency.*.p95`,
+  `abort_rate`) into build gates.
+- **Automate:** schedule where the network reaches both the backend and the judge
+  (generally in-pod) — a smoke subset pre-merge, the full suite nightly/per-release.
+- **Record per run:** backend commit, judge deployment/api-version, environment.
+
+## Porting to another agent
+
+The seams make this a per-adapter change, not a rewrite: a new `Transport` (it
+populates the same `RunRecord`), a new fact-deriver (the equivalent of
+`datasets/facts.py`), that agent's tool contracts, and its `persona`/`topic_scope`.
+`core/`, `scorers/`, and the metric catalog are unchanged.
