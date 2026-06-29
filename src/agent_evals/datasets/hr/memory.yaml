@@ -1,0 +1,46 @@
+# Memory / knowledge-retention cluster — multi-turn, data-independent: the FACTS
+# come from the user IN the conversation (not the database), so the agent must
+# recall them in a later turn. Exercises knowledge retention (#11) and, across
+# turns, conversation completeness (#10). No `requires:` — runs in any env.
+
+- id: retention-name-and-goal
+  inputs:
+    scenario: recall_user_stated_name_and_goal
+    turns:
+      - question: "Quick context before we start: my name is Alex, and my main career goal is to move into product management within two years."
+        expectations:
+          max_steps: 2
+      - question: "What's my name, and what career goal did I mention?"
+        expectations:
+          remembered_facts: ["Alex", "product management"]
+          response_must_contain: ["Alex"]
+          max_steps: 2
+
+- id: retention-stated-preferences
+  inputs:
+    scenario: recall_user_stated_preferences
+    turns:
+      - question: "For context, I'm most interested in data engineering and platform roles, and I'd prefer something with remote flexibility."
+        expectations:
+          max_steps: 2
+      - question: "Based on what I just told you, what kind of roles am I looking for?"
+        expectations:
+          remembered_facts: ["data engineering", "platform", "remote"]
+          response_must_contain: ["data engineering"]
+          max_steps: 3
+
+- id: retention-across-intervening-turn
+  inputs:
+    scenario: recall_after_intervening_turn
+    turns:
+      - question: "Note for later: I'm aiming for a team-lead role and I already have 8 years of experience."
+        expectations:
+          max_steps: 2
+      - question: "What can you help me with?"
+        expectations:
+          max_steps: 2
+      - question: "Going back — what role was I aiming for, and how many years of experience did I say I have?"
+        expectations:
+          remembered_facts: ["team-lead", "8 years"]
+          response_must_contain: ["team-lead"]
+          max_steps: 2

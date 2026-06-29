@@ -1,0 +1,64 @@
+# Orchestrator-direct cluster — turns the orchestrator handles ITSELF: no
+# subagent routing, no capability tool. Greetings (cold_start pills), capability
+# questions, and ambiguous asks it must scope with ONE clarifying question.
+# Data-independent — runs in any environment.
+
+- id: greeting-hi
+  inputs: { question: "Hi" }
+  metadata: { capability: orchestrator_greeting }
+  expectations:
+    expected_tool_calls: []
+    allowed_tool_calls: []
+    expected_scenario_id: "cold_start"
+    expected_pills: ["Update my skills", "Find matching roles", "Show profile gaps"]
+    max_steps: 2
+
+- id: greeting-new-user
+  inputs: { question: "Hello, I'm new here — where do I start?" }
+  metadata: { capability: orchestrator_greeting }
+  expectations:
+    expected_tool_calls: []
+    allowed_tool_calls: []
+    expected_scenario_id: "cold_start"
+    expected_pills: ["Update my skills", "Find matching roles", "Show profile gaps"]
+    max_steps: 2
+
+- id: capabilities-what-can-you-do
+  inputs: { question: "What can you do?" }
+  metadata:
+    capability: orchestrator_meta
+    note: "scenario is judge-selected (capabilities_listed) → not asserted; behaviour checked by rubric"
+  expectations:
+    expected_tool_calls: []
+    allowed_tool_calls: []
+    rubric: >-
+      The assistant briefly explains what it helps with — viewing/analyzing the
+      profile, suggesting and saving skills, finding matching internal roles,
+      answering role questions, and drafting recruiter outreach — without
+      inventing capabilities it does not have. Calm, concise, no emojis.
+    max_steps: 2
+
+- id: capabilities-career-help
+  inputs: { question: "How can you help me with my career here?" }
+  metadata: { capability: orchestrator_meta }
+  expectations:
+    expected_tool_calls: []
+    allowed_tool_calls: []
+    rubric: >-
+      The assistant summarizes its in-scope help (profile, skills, role matching,
+      outreach) and does not promise out-of-scope actions.
+    max_steps: 2
+
+- id: ambiguous-help-with-a-job
+  inputs: { question: "I need help with a job." }
+  metadata:
+    capability: orchestrator_clarify
+    note: "ambiguous → the orchestrator asks ONE scoped clarifying question"
+  expectations:
+    expected_tool_calls: []
+    allowed_tool_calls: []
+    rubric: >-
+      The assistant asks ONE concise clarifying question to scope the request
+      (find roles, update the profile, or draft outreach) rather than guessing or
+      doing nothing.
+    max_steps: 2
