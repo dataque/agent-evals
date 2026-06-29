@@ -72,6 +72,9 @@ agent-evals run --target local --suite ./my_suite.yaml \
 
 # Ingest production user-feedback (#23) as an offline aggregate:
 agent-evals ingest-feedback --input feedback.jsonl --sink jsonl
+
+#all
+agent-evals run --target local --suite hr --metrics all --judge azure_openai --sink jsonl
 ```
 
 `--metrics` accepts `all`, `primary` (#1–15), `secondary` (#16–24), a family
