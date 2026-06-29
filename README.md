@@ -1,7 +1,5 @@
 # agent-evals
 
-A generic, **framework-independent** evaluation system for **agentic chat systems**.
-
 It drives an agent over its live wire protocol, normalizes every run into a
 transport-neutral **`RunRecord`**, and scores it against the metric catalog in
 [`docs/metrics.md`](docs/metrics.md). MLflow is the first metrics backend, but
@@ -143,14 +141,6 @@ itself errors), and the **backend build/commit under test**. The TLS/proxy
 reasoning lives in [`docs/troubleshooting.md`](docs/troubleshooting.md); the full
 setup path is in [`docs/evaluation-setup.md`](docs/evaluation-setup.md).
 
-### Troubleshooting
-
-If `--judge azure_openai` fails on every call (`scores.jsonl` shows `Connection
-error`, `CERTIFICATE_VERIFY_FAILED`, or `403 Public access is disabled`), see
-[`docs/troubleshooting.md`](docs/troubleshooting.md) — it walks the two layers
-(corporate-CA / TLS, then the private-endpoint `403`). (A metric missing from
-`summary.json` always means it failed or was skipped — `scores.jsonl` has the
-real per-case reason.)
 
 ### Viewing results
 
