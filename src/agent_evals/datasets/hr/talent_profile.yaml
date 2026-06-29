@@ -129,8 +129,7 @@
     allowed_tool_calls: ["suggest_skills", "get_skills", "get_talent_profile"]
     expected_actions: []                # must NOT save
     max_steps: 4
-    expected_scenario_id: "skills_review_pending"   # ‹verify against backend pill-scenarios›
-    # expected_pills: ‹gate: confirm the exact pill set from the capture / pill-scenarios›
+    # CAPTURE: suggest_skills emits NO follow-up pills (observed scenario_id = none) → nothing to assert here
     forbidden_substrings: ["FULL REPLACE", "optimistic locking", "---CONTEXT---"]
     response_must_contain: []           # ‹gate›
 

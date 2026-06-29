@@ -166,6 +166,33 @@ def test_unknown_event_and_duplicate_run_started():
     assert r.stream_health.duplicate_run_started
 
 
+def test_string_error_result_flags_error():
+    # A backend deserialization error comes back as a bare STRING (not {error:...}).
+    # The mutating call must still be ERROR, or audit/action (#16) false-passes a
+    # failed write — the real save_skills defect the eval surfaced.
+    events = [
+        ev("RUN_STARTED", 0, 1.0),
+        ev("TOOL_CALL_START", 1, 2.0, toolCallId="s", toolCallName="save_skills"),
+        ev("TOOL_CALL_ARGS", 2, 3.0, toolCallId="s", delta='{"top":["Java"]}'),
+        ev("TOOL_CALL_END", 3, 4.0, toolCallId="s"),
+        ev("TOOL_CALL_RESULT", 4, 5.0, toolCallId="s",
+           content="Cannot construct instance of SaveSkillsItemInput: not of type 'object'"),
+        ev("RUN_FINISHED", 5, 6.0),
+    ]
+    r = reduce_events(events)
+    tc = r.tool_calls[0]
+    assert tc.is_error and tc.status == ToolStatus.ERROR
+    # a clean string result is NOT mistaken for an error
+    ok = reduce_events([
+        ev("RUN_STARTED", 0, 1.0),
+        ev("TOOL_CALL_START", 1, 2.0, toolCallId="g", toolCallName="get_skills"),
+        ev("TOOL_CALL_END", 2, 3.0, toolCallId="g"),
+        ev("TOOL_CALL_RESULT", 3, 4.0, toolCallId="g", content="Here are your skills: Java, React"),
+        ev("RUN_FINISHED", 4, 5.0),
+    ])
+    assert not ok.tool_calls[0].is_error
+
+
 def test_task_routing_and_steps():
     events = [
         ev("RUN_STARTED", 0, 1.0),

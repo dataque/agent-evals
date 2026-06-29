@@ -76,6 +76,15 @@ class _ToolBuilder:
         self.args_parse_error: str | None = None
 
 
+# Markers for a tool result returned as a bare error STRING (e.g. a backend
+# deserialization/stack-trace message) rather than a structured {error: ...} body.
+# Without these, a failed mutating call looks OK and audit/action (#16) false-passes.
+_STRING_ERROR_MARKERS = (
+    "cannot construct", "cannot deserialize", "deserialize", "not of type",
+    "exception", "stack trace", "traceback", "could not", "failed to", "rejected",
+)
+
+
 def _is_error_result(result: object) -> bool:
     if isinstance(result, dict):
         if result.get("error"):
@@ -83,6 +92,10 @@ def _is_error_result(result: object) -> bool:
         status = result.get("status")
         if isinstance(status, str) and status.lower() in ("error", "failed", "failure"):
             return True
+        return False
+    if isinstance(result, str):
+        low = result.lower()
+        return any(m in low for m in _STRING_ERROR_MARKERS)
     return False
 
 

@@ -17,6 +17,7 @@ import agent_evals
 
 from .core.runner import Runner
 from .datasets import load_suite
+from .datasets.facts import derive_hr_facts
 from .envfile import expand_env, load_dotenv
 from .judges import apply_per_metric_judges, build_judge
 from .scorers import build_registry, get_scorers
@@ -135,8 +136,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     def session_factory(case):
         return Session(transport, identity, state=SessionState(), timeout_s=timeout_s)
 
+    # Data-facts are derived per-run, so the same suite is portable across
+    # environments (dev/UAT/prod) with no frozen/seeded data (#32). A case whose
+    # `requires:` precondition isn't met in this env is skipped and reported.
+    run_config = {**scoring_cfg, "derive_facts": derive_hr_facts}
     runner = Runner(session_factory=session_factory, scorers=scorers, sink=sink,
-                    judge=default_judge, config=scoring_cfg)
+                    judge=default_judge, config=run_config)
     run_name = args.run_name or f"{args.suite}-{args.target}-{time.strftime('%Y%m%d-%H%M%S')}"
     params = {
         "suite": args.suite, "target": args.target, "metrics": args.metrics,
@@ -169,6 +174,11 @@ def _print_summary(report, run_name: str, args: argparse.Namespace) -> None:
               "tokens.total.mean", "tokens.estimated_fraction"):
         if k in agg:
             print(f"  {k:<34} {agg[k]:.3f}")
+    skipped = agg.get("skipped_cases") or []
+    if skipped:
+        print(f"Skipped — precondition not met in this environment ({len(skipped)}):")
+        for s in skipped:
+            print(f"  {s['case_id']:<40} requires {s.get('requires')}")
     if args.sink == "jsonl":
         print(f"\nWrote results to {Path(args.out) / run_name}/")
 

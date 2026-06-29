@@ -11,7 +11,7 @@ on the abstract ``TurnDriver`` (satisfied by any transport ``Session``), the
 from __future__ import annotations
 
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -41,7 +41,7 @@ class TurnDriver(Protocol):
 class RunReport(BaseModel):
     run_name: str
     case_results: list[CaseResult] = Field(default_factory=list)
-    aggregates: dict[str, float] = Field(default_factory=dict)
+    aggregates: dict[str, Any] = Field(default_factory=dict)
 
 
 # session_factory signature: (EvalCase) -> TurnDriver
@@ -71,22 +71,29 @@ class Runner:
         all_runs: list[RunRecord] = []
         try:
             for case in cases:
-                skip = self._precondition_skip(case)
-                if skip is not None:
-                    result = CaseResult(
-                        case_id=case.id,
-                        scores=[skip],
-                        metadata={**dict(case.metadata),
-                                  "precondition_skipped": True,
-                                  "skip_reason": skip.skip_reason,
-                                  "requires": list(case.requires or [])},
-                    )
-                    self.sink.log_case_result(result, [])
-                    case_results.append(result)
-                    continue
+                # Drive first, then decide applicability from what the agent's
+                # tools actually returned THIS run — the eval must not depend on
+                # frozen/seeded data (#31/#32). Operational metrics see every real
+                # run, so a skipped case still counts toward latency/tokens.
                 runs = self._drive_case(case)
                 all_runs.extend(runs)
-                result = self._score_case(case, runs)
+                facts = self._derive_facts(runs)
+                unmet = self._unmet_requires(case, facts)
+                if unmet is not None:
+                    reason = f"precondition unmet in this environment: {unmet}"
+                    result = CaseResult(
+                        case_id=case.id,
+                        scores=[Score.skip("precondition", reason,
+                                           requires=list(case.requires or []), unmet=unmet, facts=facts)],
+                        metadata={**dict(case.metadata),
+                                  "precondition_skipped": True,
+                                  "skip_reason": reason,
+                                  "requires": list(case.requires or []),
+                                  "derived_facts": facts},
+                    )
+                else:
+                    result = self._score_case(case, runs)
+                    result.metadata["derived_facts"] = facts
                 self.sink.log_case_result(result, runs)
                 case_results.append(result)
             aggregates = self._aggregate(case_results, all_runs)
@@ -105,28 +112,23 @@ class Runner:
             runs.append(rec)
         return runs
 
-    def _precondition_skip(self, case: EvalCase) -> Score | None:
-        """Skip a case whose profile-state precondition isn't met (#31).
+    def _derive_facts(self, runs: list[RunRecord]) -> dict:
+        """Read data-facts (e.g. ``has_matched_requisitions``) from THIS run's
+        tool results, via the configured ``config['derive_facts']`` callable.
+        Empty when none is wired (a pure capture → nothing is filtered)."""
+        deriver = self.config.get("derive_facts")
+        return deriver(runs) if callable(deriver) else {}
 
-        ``config['profile_state']`` is a dict of known facts (e.g.
-        ``{'has_matched_requisitions': True}``). When it is absent (e.g. the
-        transcript-capture run) nothing is filtered — every case runs. When it
-        is present, a case ``requires:`` every listed fact to be truthy, else it
-        is skipped with an explicit, reported reason (never silently)."""
-        requires = case.requires
-        if not requires:
+    def _unmet_requires(self, case: EvalCase, facts: dict) -> list[str] | None:
+        """Which of a case's ``requires:`` preconditions are NOT satisfied by the
+        run-derived facts (#31/#32). ``None`` when the case has no preconditions,
+        or no deriver is configured (capture mode → run everything). A non-empty
+        list means the case is skipped with an explicit, reported reason — never
+        silently. Data‑independent: the facts come from this env's own run."""
+        if not case.requires or not callable(self.config.get("derive_facts")):
             return None
-        state = self.config.get("profile_state")
-        if not state:
-            return None
-        unmet = [f for f in requires if not state.get(f)]
-        if unmet:
-            return Score.skip(
-                "precondition",
-                f"profile-state precondition unmet: {unmet}",
-                requires=list(requires), unmet=unmet,
-            )
-        return None
+        unmet = [f for f in case.requires if not facts.get(f)]
+        return unmet or None
 
     def _score_case(self, case: EvalCase, runs: list[RunRecord]) -> CaseResult:
         scores: list[Score] = []
@@ -155,7 +157,7 @@ class Runner:
                 scores.append(Score.failed(spec.metric, f"{type(exc).__name__}: {exc}"))
         return CaseResult(case_id=case.id, scores=scores, metadata=dict(case.metadata))
 
-    def _aggregate(self, case_results: list[CaseResult], all_runs: list[RunRecord]) -> dict[str, float]:
+    def _aggregate(self, case_results: list[CaseResult], all_runs: list[RunRecord]) -> dict[str, Any]:
         from collections import defaultdict
 
         by_metric: dict[str, list[float]] = defaultdict(list)
@@ -173,7 +175,7 @@ class Runner:
                 if s.passed is not None:
                     passes[s.metric].append(s.passed)
 
-        agg: dict[str, float] = {}
+        agg: dict[str, Any] = {}
         for metric, vals in by_metric.items():
             m = mean(vals)
             if m is not None:
@@ -186,13 +188,20 @@ class Runner:
         # just vanish from the summary — surface its error count.
         for metric, n in errors.items():
             agg[f"{metric}.errors"] = float(n)
-        # case-level coverage + precondition skips (reported, never silent).
+        # case-level coverage + precondition skips, WITH per-case reasons in the
+        # summary (reported, never silent).
         if case_results:
-            pc_skipped = sum(1 for cr in case_results if cr.metadata.get("precondition_skipped"))
+            skipped = [cr for cr in case_results if cr.metadata.get("precondition_skipped")]
             agg["cases.total"] = float(len(case_results))
-            agg["cases.scored"] = float(len(case_results) - pc_skipped)
-            if pc_skipped:
-                agg["cases.skipped_precondition"] = float(pc_skipped)
+            agg["cases.scored"] = float(len(case_results) - len(skipped))
+            if skipped:
+                agg["cases.skipped_precondition"] = float(len(skipped))
+                agg["skipped_cases"] = [
+                    {"case_id": cr.case_id,
+                     "requires": cr.metadata.get("requires"),
+                     "reason": cr.metadata.get("skip_reason")}
+                    for cr in skipped
+                ]
 
         # operational: latency distribution across all runs
         ttfts = [r.timing.ttft_ms for r in all_runs]
