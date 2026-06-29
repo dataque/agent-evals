@@ -7,10 +7,15 @@ from ..core.scorer import Family, Score, ScorerSpec, ScoringContext, TurnScope
 from ._judge_base import judged, resolve_judge, turn_context
 
 _CRITERIA = (
-    "Did the assistant fully accomplish the user's goal for this turn? "
-    "Consider the user's QUESTION, the assistant's RESPONSE, and the tool actions "
-    "in CONTEXT. If a REFERENCE is given, treat it as the ideal outcome. "
-    "Score 1.0 for full completion, partial credit otherwise."
+    "Did the assistant accomplish the user's goal for this turn? Consider the "
+    "user's QUESTION, the assistant's RESPONSE, and the tool actions/outputs in "
+    "CONTEXT. This is a UI-driven product: substantive content (skill lists, role "
+    "cards, drafted emails) is delivered to the user via tool results / UI cards, "
+    "and the chat RESPONSE is intentionally brief. So if the tool actions in "
+    "CONTEXT produced what the user asked for, COUNT it as accomplished even when "
+    "the RESPONSE only briefly refers to it (e.g. 'review the suggestions in the "
+    "panel'). If a REFERENCE is given, treat it as the ideal outcome. Score 1.0 "
+    "for full completion, partial credit otherwise."
 )
 
 

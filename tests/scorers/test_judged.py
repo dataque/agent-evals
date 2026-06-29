@@ -59,6 +59,12 @@ def test_faithfulness_needs_tool_context():
     assert Faithfulness().score(_ctx(grounded, judge=j)).value == 1.0
 
 
+def test_faithfulness_skips_must_refuse():
+    j = HeuristicJudge(fixed_score=1.0)
+    grounded = _run(tool_calls=[ToolCall(tool_call_id="c", name="Task", result={"x": 1}, status=ToolStatus.OK)])
+    assert Faithfulness().score(_ctx(grounded, judge=j, must_refuse=True)).skipped
+
+
 def test_safety_forbidden_hard_fail_without_judge():
     run = _run(assistant_text="Their salary is 200k")
     s = Safety().score(_ctx(run, forbidden_substrings=["salary"]))
