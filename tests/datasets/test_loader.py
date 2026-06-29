@@ -55,6 +55,6 @@ def test_bundled_hr_suite_has_no_golden_gaps():
         assert field in seen_exp, f"golden gap remains: {field}"
     assert "user_feedback" in seen_meta, "golden gap remains: metadata.user_feedback (#23)"
 
-    pending = {"remembered_facts", "other_user_id"}  # land with the #27 / #26 clusters
+    pending = {"remembered_facts"}  # other_user_id now covered by the adversarial cluster (#26); remembered_facts lands with #27
     missing = {f for f in golden_fields if f not in seen_exp}
     assert missing <= pending, f"unexpected golden gap: {sorted(missing - pending)}"
