@@ -17,7 +17,7 @@
           expected_tool_calls: ["suggest_requisitions"]
           allowed_tool_calls: ["suggest_requisitions", "get_talent_profile"]
           expected_scenario_id: "matches_returned"
-          expected_pills: ["Show more", "Align to my preferences"]
+          expected_pills: ["Show more", "Ask about a role"]
           max_steps: 4
       - question: "Tell me more about the first role"
         expectations:

@@ -15,7 +15,7 @@
     allowed_tool_calls: ["suggest_requisitions", "get_talent_profile"]
     max_steps: 4
     expected_scenario_id: "matches_returned"
-    expected_pills: ["Show more", "Align to my preferences"]
+    expected_pills: ["Show more", "Ask about a role"]
     forbidden_substrings: ["---CONTEXT---", "scenario_id"]
     response_must_contain: []      # ‹gate: a real matched role title›
 
@@ -42,7 +42,7 @@
     allowed_tool_calls: ["suggest_requisitions", "get_talent_profile"]
     max_steps: 4
     expected_scenario_id: "matches_returned"
-    expected_pills: ["Show more", "Align to my preferences"]
+    expected_pills: ["Show more", "Ask about a role"]
 
 - id: find-roles-show-more-figma-pill
   requires: [has_matched_requisitions]
