@@ -81,6 +81,71 @@ not of type 'object'`; schema-adherence (#4) fails; audit/action (#16) = 0.0.
 (`{name: …}`), or `save_skills` should accept bare strings. **Eval tracks:**
 tool_result_schema_adherence (#4), audit_log_action_taken (#16).
 
+> Status: **open in current production** — the v3 baseline records
+> `audit_log_action_taken` = **0.0**. The object-shape fix that makes this pass
+> lives in the **unreleased** later release (it showed up in the v2 run only as
+> leakage, which is why an earlier baseline wrongly read F4 as "fixed in prod").
+> The eval will flip this green when that release ships and is compared against v3.
+
+## F5 — Sub-agent follow-up pills not surfaced (buried in the `Task` result)  (HIGH — UX contract)
+
+> Found on a capture run against **production followups code**, not the original v1
+> run. v1's 0.94 was measured on a followups build that **never shipped**, so 0.34 is
+> not a regression from any shipped state — it is simply the real production
+> behaviour (carried into the v3 baseline from the v2 pills measurement).
+
+**Observed:** on turns the orchestrator delegates to a specialist (`Task`), the
+specialist's `emit_followups` does **not** surface as a first-class `emit_followups`
+tool result. Its `{scenario_id, pills}` leaks **nested inside the delegation
+envelope** — e.g. `{"input":{"scenario_id":"apply_guidance_given","pills":["More
+roles"]},"innerThought":"…"}` — with only a `Task` tool call on the stream and no
+`emit_followups`. The pill contract is read from a first-class `emit_followups`
+result, so specialist-delegated turns render **no pills** to the user.
+
+**Expected:** every turn that should emit pills produces a first-class
+`emit_followups` `TOOL_CALL_RESULT` with top-level `{pills, scenario_id}` — as the
+orchestrator-direct turns already do.
+
+**Cases:** `find-roles-canonical-matches`, `find-roles-paraphrase`,
+`profile-completeness-{canonical,terse,verbose}`, `view-skills-{canonical,paraphrase}`,
+`journey-role-chain-happy` (matches/draft turns) — all `observed_scenario_id = None`.
+**Evidence:** capture diagnostic over the run — `OK 24 · DROPPED 0 · BURIED 15 ·
+NO_PILLS 16`; buried payload above (`tool_starts=['Task']`, no `emit_followups`).
+Orchestrator-direct scenarios (`cold_start`, `off_topic_redirect`) surface cleanly
+(the 24 OK), so this is specific to **specialist-delegated** turns. **Not a golden
+defect** — the buried pills match the goldens; the `matches_returned` golden text
+was corrected separately.
+
+**Likely cause:** sub-agent tool activity (incl. `emit_followups`, `returnDirect`)
+is serialized into the `Task` result instead of being re-emitted as a top-level
+event on the orchestrator SSE stream (the "sub-agent JSON leak"). Racey — some
+specialist emits do surface (part of the 24 OK). **Fix direction:** surface
+sub-agent `emit_followups` as a first-class `TOOL_CALL_RESULT` with top-level
+`{pills, scenario_id}`. **Eval tracks:** followup_pills_correctness (#25).
+
+> Status: F5 is **current production** behavior — the v3 baseline records pills at
+> **0.34** (mean) / 0.31 (pass-rate) as known-RED, carried from the v2 run (the one
+> metric v2 measured on production followups code). A follow-up-pills **refactor
+> ships in the incoming release** and is expected to flip this green; that release is
+> compared against **v3**. Re-validate the pill goldens against the new release's
+> prompt tables before that comparison (a pills refactor is exactly when the contract
+> can change).
+
+---
+
+## Incoming-release regressions (pending — not current production)
+
+Two anchors drop in the **unreleased** later release (visible as leakage in the v2
+run), but have **not shipped** — in current production they are healthy:
+
+- **tool_selection_accuracy** — prod **1.0**, unreleased ~0.86.
+- **tool_result_schema_adherence** — prod **0.99**, unreleased ~0.88 (a broad drop,
+  distinct from F4's single save-case schema failure).
+
+These are **not current production defects** — they belong on the **release
+watch-list**. Confirm whether they are real and scope the cause when the later
+release is evaluated against the v3 baseline; they must not ship silently.
+
 ---
 
 ## Not defects — eval calibration (handled in the eval, not the agent)
