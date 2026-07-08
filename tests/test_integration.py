@@ -24,6 +24,18 @@ from agent_evals.judges import HeuristicJudge, apply_per_metric_judges
 from agent_evals.scorers import build_registry, get_scorers
 from agent_evals.sinks import JsonlSink
 
+import pytest
+
+import agent_evals.datasets as _ds
+
+# The bundled HR suite (datasets/hr/*.yaml) is gitignored / not shipped; skip this
+# suite-dependent integration test when it isn't present locally (e.g. a fresh clone).
+_HR_SUITE = Path(_ds.__file__).parent / "hr"
+pytestmark = pytest.mark.skipif(
+    not (_HR_SUITE.is_dir() and any(_HR_SUITE.glob("*.y*ml"))),
+    reason="bundled hr suite not present (gitignored) — provide a suite to run this",
+)
+
 _SCHEMA_RESULTS = {
     "suggest_skills": {"top": [{"name": "Python", "source": "AI_INFERRED"}], "additional": []},
     "suggest_requisitions": {"matches": [{"requisition": {"requisitionId": "R1"}, "matchScore": "HIGH"}]},

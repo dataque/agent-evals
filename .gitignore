@@ -2,6 +2,7 @@
 secret.key
 scripts/
 docs/
+src/agent_evals/datasets/hr/
 
 # Local env / secrets (real GPN, tokens, judge keys)
 .env

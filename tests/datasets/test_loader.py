@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
+import agent_evals.datasets as _ds
 from agent_evals.datasets import load_suite
+
+# The bundled HR suite (datasets/hr/*.yaml) is gitignored / not shipped in the repo;
+# skip suite-dependent tests when it isn't present locally (e.g. a fresh clone).
+_HR_SUITE = Path(_ds.__file__).parent / "hr"
+pytestmark = pytest.mark.skipif(
+    not (_HR_SUITE.is_dir() and any(_HR_SUITE.glob("*.y*ml"))),
+    reason="bundled hr suite not present (gitignored) — provide a suite to exercise these",
+)
 
 
 def test_load_bundled_hr_suite():
