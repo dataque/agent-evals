@@ -34,7 +34,7 @@ EvalCase ─► Runner ─► Transport.run_turn() ─► RunRecord ─► Score
 | `agent_evals.judges` | Provider-neutral `Judge` impls: Azure OpenAI (default), MLflow-native, DeepEval. |
 | `agent_evals.sinks` | `MlflowSink` (first) and `JsonlSink` (portability proof). The only place `mlflow` is imported. |
 | `agent_evals.contracts` | Tool-name → JSON-Schema registry (for tool-result-schema adherence). |
-| `agent_evals.datasets` | Eval suites + loader. |
+| `agent_evals.datasets` | Suite loader + fact deriver (bring-your-own suite). |
 
 ## Install
 
