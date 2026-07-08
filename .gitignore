@@ -1,6 +1,7 @@
 .DS_Store
 secret.key
 scripts/
+docs/
 
 # Local env / secrets (real GPN, tokens, judge keys)
 .env

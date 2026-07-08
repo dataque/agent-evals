@@ -3,7 +3,7 @@
 A generic, framework-independent evaluation system for agentic chat systems.
 It drives an agent over its live wire protocol, normalizes every run into a
 transport-neutral **`RunRecord`**, and scores it against the metric catalog in
-[`docs/metrics.md`](docs/metrics.md). MLflow is the first metrics backend, but
+`docs/metrics.md`. MLflow is the first metrics backend, but
 the core never imports it — porting to another framework means writing one
 adapter, not a rewrite.
 
@@ -52,10 +52,10 @@ Per-developer values (your user login id, tokens, judge keys) go in a gitignored
 `${VAR}` — e.g. `user_login_id: "${AGENT_EVALS_USER_LOGIN_ID}"`. So set
 `AGENT_EVALS_USER_LOGIN_ID=<your real login id>` in `.env` before running.
 
-> [`docs/evaluation-setup.md`](docs/evaluation-setup.md) is the reference for
+> `docs/evaluation-setup.md` is the reference for
 > authoring/extending the dataset, judge calibration, and operating the eval;
 > [`BASELINE.md`](BASELINE.md) is the frozen reference run, and agent defects the
-> eval surfaced are in [`docs/agent-findings.md`](docs/agent-findings.md).
+> eval surfaced are in `docs/agent-findings.md`.
 
 ```bash
 # List the implemented metrics
@@ -143,8 +143,8 @@ export no_proxy="${no_proxy},<judge-host>"; export NO_PROXY="$no_proxy"
 Two things the eval can't set but you should **record** for reproducibility: the
 **backend's own LLM credentials** (configured backend-side — without them the agent
 itself errors), and the **backend build/commit under test**. The TLS/proxy
-reasoning lives in [`docs/troubleshooting.md`](docs/troubleshooting.md); the full
-setup path is in [`docs/evaluation-setup.md`](docs/evaluation-setup.md).
+reasoning lives in `docs/troubleshooting.md`; the full
+setup path is in `docs/evaluation-setup.md`.
 
 ### Viewing results
 
