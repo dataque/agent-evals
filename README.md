@@ -54,7 +54,7 @@ Per-developer values (your user login id, tokens, judge keys) go in a gitignored
 
 > `docs/evaluation-setup.md` is the reference for
 > authoring/extending the dataset, judge calibration, and operating the eval;
-> [`BASELINE.md`](BASELINE.md) is the frozen reference run, and agent defects the
+> `BASELINE.md` is the frozen reference run, and agent defects the
 > eval surfaced are in `docs/agent-findings.md`.
 
 ```bash
@@ -196,7 +196,7 @@ retrieval metrics are N/A â€” no retriever). The eval is **data-independent** â€
 asserts behaviour, not specific records, so the same suite runs across
 environments; data-dependent cases self-skip per run and are reported in the
 summary. A calibrated reference run is frozen as `baseline-v1` (see
-[`BASELINE.md`](BASELINE.md)).
+`BASELINE.md`).
 
 The test suite runs fully offline (the transport is verified against a mock
 backend reproducing the exact AG-UI/SSE wire contract); the live smoke test runs
