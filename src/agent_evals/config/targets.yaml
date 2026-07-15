@@ -67,15 +67,22 @@ scoring:
     statements. No emojis, minimal exclamation marks, no small talk or jokes. It
     stays strictly within its remit (profile & skills, role matching, recruiter
     outreach) and never invents capabilities, policies, or data. It DOES correctly
-    point users to product affordances it actually has — the skills side panel, the
-    "Download to send" email button (sent from Outlook), MyCareer for editing other
-    profile sections, and the jobs portal to apply — so mentioning those is correct,
-    not fabrication.
+    point users to product affordances it actually has — editing SKILLS directly in
+    chat (staged in the session until the user explicitly Confirms a save), the
+    skills side panel, the "Download to send" email button (sent from Outlook),
+    MyCareer for editing non-skill profile sections, and the jobs portal to apply —
+    so mentioning or using those is correct, not fabrication.
   topic_scope: >-
-    In scope: HR & career — profile/skills management, job/role discovery, role
-    Q&A, and recruiter-outreach drafting. Out of scope (deflect, don't answer):
-    editing experience/education/preferences (-> MyCareer), applying to or sending
-    anything, other employees' data, and any non-career topic.
+    In scope: HR & career — profile/skills management (viewing skills, suggesting
+    skills, EDITING skills in chat via the session-staged edit flow, and saving
+    them on the user's explicit Confirm), job/role discovery, role Q&A, and
+    recruiter-outreach drafting. Out of scope (deflect, don't answer): editing
+    NON-SKILL profile sections (experience/education/preferences) in chat,
+    applying to roles or sending emails on the user's behalf, other employees'
+    data, and any non-career topic. IMPORTANT: the deflection itself is in-scope
+    behaviour — pointing the user to MyCareer for non-skill edits, to the jobs
+    portal (goto/jobs) to apply, or to Download-to-send for emails is the
+    MANDATED response, never a scope violation.
   latency_total_sla_ms: 30000   # per-turn total budget; env/model dependent — tune per environment
   thresholds:
     # deterministic / probe — exact behaviour expected

@@ -129,18 +129,23 @@ def test_any_candidate_call_may_satisfy():
 
 
 def test_realistic_edit_skills_spec():
-    spec = {"edit_skills": {"top": {
+    # run3-verified wire shape: args wrapped under the method-parameter name,
+    # with innerThought/confidence side-channels (tolerated by subset match)
+    spec = {"edit_skills": {"editSkillsInput": {"top": {
         "$type": "array", "$size": {"min": 5, "max": 10},
         "$contains_all": [
             {"name": "Java", "source": "MANUAL"}, {"name": "React", "source": "MANUAL"},
             {"name": "Python", "source": "MANUAL"}, {"name": "Analytics", "source": "MANUAL"},
             {"name": "P&L", "source": "MANUAL"},
-        ]}}}
+        ]}}}}
     good = [{"name": n, "source": "MANUAL"} for n in ("Java", "React", "Python", "Analytics", "P&L")]
-    assert _score(spec, _tc("edit_skills", {"top": good, "additional": []})).value == 1.0
-    # one required item missing -> fail, reason names it
-    s = _score(spec, _tc("edit_skills", {"top": good[:4], "additional": []}))
-    assert s.value == 0.0
+    ok = _score(spec, _tc("edit_skills", {"editSkillsInput": {"top": good, "additional": []},
+                                          "innerThought": "staging skills", "confidence": "high"}))
+    assert ok.value == 1.0
+    # the run3 granular-add defect shape: top replaced with a single item ->
+    # $size(min 5) fails and the reason pinpoints it
+    s = _score(spec, _tc("edit_skills", {"editSkillsInput": {"top": good[:1], "additional": []}}))
+    assert s.value == 0.0 and "size 1 < min 5" in s.details["failure_reasons"]["edit_skills"]
 
 
 def test_legacy_exact_specs_still_work():

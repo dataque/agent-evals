@@ -60,17 +60,19 @@ _SKILLS_STATE = {"skills": {"top": [{"name": "Python", "source": "AI_INFERRED"}]
 # back as literal args — the fake supplies canned args that SATISFY those specs
 # (union of every arg golden in the suite).
 _CANNED_ARGS = {
-    "view_requisition": {"requisition": "329727BR"},
-    "answer_requisition_questions": {"requisitionId": "329727BR",
-                                     "question": "What is the team size for this role?"},
-    "draft_message": {"recruiterId": "00002293", "requisitionId": "329727BR",
-                      "questionSummary": "the team size"},
-    "edit_skills": {"top": [
+    # run3-verified wire shape: args ride under the Spring AI method-parameter
+    # name (input / editSkillsInput) with innerThought/confidence side-channels
+    "view_requisition": {"input": {"requisition": "329727BR"}, "innerThought": "…"},
+    "answer_requisition_questions": {"input": {"requisitionId": "329727BR",
+                                               "question": "What is the team size for this role?"}},
+    "draft_message": {"input": {"recruiterId": "00002293", "requisitionId": "329727BR",
+                                "questionSummary": "the team size"}},
+    "edit_skills": {"editSkillsInput": {"top": [
         {"source": "MANUAL", "name": "Java"}, {"source": "MANUAL", "name": "React"},
         {"source": "MANUAL", "name": "Python"}, {"source": "MANUAL", "name": "Analytics"},
         {"source": "MANUAL", "name": "P&L"}, {"source": "MANUAL", "name": "Analytical thinking"},
         {"source": "MANUAL", "name": "JavaScript"},
-    ], "additional": []},
+    ], "additional": []}, "innerThought": "…"},
 }
 
 
