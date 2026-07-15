@@ -20,18 +20,6 @@ def _results_of(runs: list[RunRecord], name: str) -> list:
     return [tc.result for r in runs for tc in r.tool_calls if tc.name == name]
 
 
-def _emitted_scenarios(runs: list[RunRecord]) -> set[str]:
-    out: set[str] = set()
-    for r in runs:
-        for tc in r.tool_calls:
-            res = tc.result
-            if isinstance(res, dict):
-                sid = res.get("scenarioId") or res.get("scenario_id")
-                if sid:
-                    out.add(str(sid))
-    return out
-
-
 def derive_hr_facts(runs: list[RunRecord]) -> dict:
     """Read data-facts from a case's runs. A fact is set only when the relevant
     tool actually ran this turn, so an absent fact means "not observed in this
@@ -44,14 +32,25 @@ def derive_hr_facts(runs: list[RunRecord]) -> dict:
         facts["has_matched_requisitions"] = bool(has)
         facts["no_matched_requisitions"] = not has
 
-    skills = _results_of(runs, "get_skills")
-    if skills:
-        facts["has_skills"] = any(isinstance(res, dict) and res.get("top") for res in skills)
+    # Skills now live in SESSION STATE (the get_skills result is only a
+    # {status, data:{result}} ack): read final_state['skills'] from any run
+    # where get_skills actually ran. Note suggest_skills/edit_skills overwrite
+    # the same property with inferred/edited skills, so only get_skills runs
+    # are treated as evidence of SAVED skills.
+    for r in runs:
+        if any(tc.name == "get_skills" for tc in r.tool_calls):
+            state = r.final_state if isinstance(r.final_state, dict) else {}
+            skills = state.get("skills")
+            if isinstance(skills, dict):
+                facts["has_skills"] = bool(skills.get("top"))
 
-    scenarios = _emitted_scenarios(runs)
-    if "profile_analyzed" in scenarios:
-        facts["profile_complete"], facts["profile_sparse"] = True, False
-    elif "profile_not_set_up" in scenarios:
-        facts["profile_complete"], facts["profile_sparse"] = False, True
+    # Profile completeness from the analyze_talent_profile result itself (the
+    # old profile_analyzed / profile_not_set_up pill scenarios are gone with the
+    # pills refactor). Mirror the backend's own threshold: >= 4 missing sections
+    # is "mostly empty" (profile_sparse).
+    for res in _results_of(runs, "analyze_talent_profile"):
+        if isinstance(res, dict) and isinstance(res.get("missingSections"), list):
+            sparse = len(res["missingSections"]) >= 4
+            facts["profile_complete"], facts["profile_sparse"] = (not sparse), sparse
 
     return facts

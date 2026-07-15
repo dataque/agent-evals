@@ -40,6 +40,7 @@ class AgUiSseTransport:
         create_thread: bool = True,
         graphql_url: str | None = None,
         http_transport: "httpx.BaseTransport | None" = None,
+        post_finish_grace_s: float = 10.0,
     ) -> None:
         self.url = url
         self.headers = headers or {}
@@ -53,6 +54,12 @@ class AgUiSseTransport:
         # arbitrary threadId; ``graphql_url`` overrides the derived endpoint.
         self.create_thread = create_thread
         self.graphql_url = graphql_url
+        # AG-UI forbids events after RUN_FINISHED, but the backend has raced late
+        # events (follow-up pills) past it before. Instead of breaking at
+        # RUN_FINISHED we keep draining until EOF (the normal case — the server
+        # closes the stream) or this grace window, so a late NEXT_STEPS / STATE
+        # event is still captured.
+        self.post_finish_grace_s = post_finish_grace_s
         # Optional injected httpx transport (e.g. MockTransport for tests,
         # or a retrying/proxy transport in production).
         self.http_transport = http_transport
@@ -91,6 +98,7 @@ class AgUiSseTransport:
 
         events = []
         t0 = time.perf_counter()
+        finished_at: float | None = None
         aborted_timeout = False
         transport_error: str | None = thread_error
         timeout = httpx.Timeout(turn.timeout_s, connect=self.connect_timeout_s)
@@ -104,6 +112,13 @@ class AgUiSseTransport:
                 with httpx.Client(**client_kwargs) as client:
                     with connect_sse(client, "POST", self.url, json=body, headers=headers) as es:
                         for sse in es.iter_sse():
+                            now = time.perf_counter()
+                            if finished_at is not None and (now - finished_at) > self.post_finish_grace_s:
+                                break  # drained the post-RUN_FINISHED grace window
+                            if (now - t0) > turn.timeout_s:
+                                if finished_at is None:
+                                    aborted_timeout = True
+                                break
                             if not sse.data:
                                 continue
                             raw_txt = sse.data.lstrip()  # backend prefixes each payload with a space
@@ -120,17 +135,19 @@ class AgUiSseTransport:
                                 arrival_wall=time.time(),
                             )
                             events.append(ev)
-                            if ev.type == ET.RUN_FINISHED:
-                                break
-                            if (time.perf_counter() - t0) > turn.timeout_s:
-                                aborted_timeout = True
-                                break
+                            if ev.type == ET.RUN_FINISHED and finished_at is None:
+                                finished_at = time.perf_counter()
             except httpx.HTTPStatusError as exc:
                 transport_error = f"HTTP {exc.response.status_code}"
             except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.PoolTimeout):
-                aborted_timeout = True
+                # a read timeout AFTER RUN_FINISHED is just an idle drain — clean
+                if finished_at is None:
+                    aborted_timeout = True
             except Exception as exc:
-                transport_error = f"{type(exc).__name__}: {exc}"
+                # stream teardown after RUN_FINISHED (e.g. an abrupt server close
+                # mid-drain) must not error an already-completed run
+                if finished_at is None:
+                    transport_error = f"{type(exc).__name__}: {exc}"
 
         reduced = reduce_events(events, aborted_timeout=aborted_timeout)
         timing = derive_timing(

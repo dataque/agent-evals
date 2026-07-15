@@ -82,6 +82,7 @@ class _ToolBuilder:
 _STRING_ERROR_MARKERS = (
     "cannot construct", "cannot deserialize", "deserialize", "not of type",
     "exception", "stack trace", "traceback", "could not", "failed to", "rejected",
+    "nothing was saved",
 )
 
 
@@ -92,6 +93,13 @@ def _is_error_result(result: object) -> bool:
         status = result.get("status")
         if isinstance(status, str) and status.lower() in ("error", "failed", "failure"):
             return True
+        # ToolResponse envelope {status, data:{result: "<ack text>"}}: a SUCCESS
+        # envelope can still carry a no-op/failure message (e.g. save_skills
+        # "... Nothing was saved."); scan the ack text so #16 doesn't false-pass.
+        data = result.get("data")
+        if isinstance(data, dict) and isinstance(data.get("result"), str):
+            low = data["result"].lower()
+            return any(m in low for m in _STRING_ERROR_MARKERS)
         return False
     if isinstance(result, str):
         low = result.lower()

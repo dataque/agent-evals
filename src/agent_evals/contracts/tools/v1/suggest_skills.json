@@ -1,23 +1,18 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "suggest_skills result",
-  "description": "Mirrors the frontend InferredSkillsCard result (TopAndAdditionalSkillsFormValues).",
+  "description": "Mirrors ToolResponse<SuggestSkillsOutput>: a state-update acknowledgement. The inferred skills payload is written to session state under `skills` (asserted separately via the state contract contracts/state/v1/skills.json).",
   "type": "object",
-  "required": ["top", "additional"],
+  "required": ["status", "data"],
   "additionalProperties": true,
   "properties": {
-    "top": { "type": "array", "items": { "$ref": "#/definitions/skillItem" } },
-    "additional": { "type": "array", "items": { "$ref": "#/definitions/skillItem" } }
-  },
-  "definitions": {
-    "skillItem": {
+    "status": { "type": "string", "enum": ["SUCCESS", "FAILURE"] },
+    "data": {
       "type": "object",
-      "required": ["name"],
+      "required": ["result"],
       "additionalProperties": true,
       "properties": {
-        "id": { "type": ["string", "null"] },
-        "name": { "type": "string" },
-        "source": { "type": "string", "enum": ["AI_EXTRACTED", "AI_INFERRED", "MANUAL"] }
+        "result": { "type": "string" }
       }
     }
   }

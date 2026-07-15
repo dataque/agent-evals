@@ -1,13 +1,15 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "analyze_talent_profile result",
-  "description": "Mirrors the frontend ProfileAnalysisCard result.",
+  "description": "Mirrors AnalyzeTalentProfileOutput ({ talentProfile, missingSections, nextActions, profileStrength, requiredNextAction }). requiredNextAction currently carries a STALE directive to call the deleted emit_followups tool (backend defect — see hand-off D1); optional here so the backend cleanup will not break this contract.",
   "type": "object",
-  "required": ["talentProfile", "missingSections", "nextActions"],
+  "required": ["talentProfile", "missingSections", "nextActions", "profileStrength"],
   "additionalProperties": true,
   "properties": {
     "talentProfile": { "type": "object", "additionalProperties": true },
     "missingSections": { "type": "array", "items": { "type": "string" } },
+    "profileStrength": { "type": "integer" },
+    "requiredNextAction": { "type": ["string", "null"] },
     "nextActions": {
       "type": "array",
       "items": {

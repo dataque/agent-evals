@@ -56,20 +56,36 @@ def test_tool_selection_f1():
 
 # ---- #3 tool arguments ----------------------------------------------------
 def test_tool_arguments_subset_match():
-    run = _run(tool_calls=[_tc("save_skills", args={"skills": ["Python"], "extra": 1})])
-    ok = ToolArgumentCorrectness().score(_ctx(run, expected_tool_args={"save_skills": {"skills": ["Python"]}}))
+    run = _run(tool_calls=[_tc("view_requisition", args={"requisition": "329727BR", "extra": 1})])
+    ok = ToolArgumentCorrectness().score(_ctx(run, expected_tool_args={"view_requisition": {"requisition": "329727BR"}}))
     assert ok.value == 1.0
-    bad = ToolArgumentCorrectness().score(_ctx(run, expected_tool_args={"save_skills": {"skills": ["Java"]}}))
+    bad = ToolArgumentCorrectness().score(_ctx(run, expected_tool_args={"view_requisition": {"requisition": "111111BR"}}))
     assert bad.value == 0.0
 
 
 # ---- #4 tool result schema ------------------------------------------------
+_ACK = {"status": "SUCCESS", "data": {"result": "State property skills updated."}}
+_SKILLS_STATE = {"skills": {"top": [{"name": "Python", "source": "AI_INFERRED"}], "additional": []}}
+
+
 def test_tool_result_schema_adherence():
-    valid = _run(tool_calls=[_tc("suggest_skills", result={"top": [{"name": "Python"}], "additional": []})])
+    # skills tools: the ack envelope on the result AND the `skills` state
+    # property must both validate (2 checks)
+    valid = _run(tool_calls=[_tc("suggest_skills", result=_ACK)], final_state=_SKILLS_STATE)
     assert ToolResultSchemaAdherence().score(_ctx(valid)).value == 1.0
-    invalid = _run(tool_calls=[_tc("suggest_skills", result={"top": [{"name": "Python"}]})])  # missing 'additional'
-    bad = ToolResultSchemaAdherence().score(_ctx(invalid))
-    assert bad.value == 0.0 and bad.details["failures"]
+    # ack fine but no state captured -> the state check fails
+    no_state = _run(tool_calls=[_tc("suggest_skills", result=_ACK)])
+    s = ToolResultSchemaAdherence().score(_ctx(no_state))
+    assert s.value == 0.5 and any("state" in str(f) for f in s.details["failures"])
+    # pre-refactor payload shape on the result -> the ack check fails
+    old_shape = _run(tool_calls=[_tc("suggest_skills", result={"top": [], "additional": []})],
+                     final_state=_SKILLS_STATE)
+    s2 = ToolResultSchemaAdherence().score(_ctx(old_shape))
+    assert s2.value == 0.5
+    # a non-state tool validates its result only
+    bare = _run(tool_calls=[_tc("answer_requisition_questions",
+                                result={"requisitionContainsAnswer": True, "answer": "Yes"})])
+    assert ToolResultSchemaAdherence().score(_ctx(bare)).value == 1.0
     # tool with no registered schema -> skipped
     assert ToolResultSchemaAdherence().score(_ctx(_run(tool_calls=[_tc("unregistered_tool", result={})]))).skipped
 

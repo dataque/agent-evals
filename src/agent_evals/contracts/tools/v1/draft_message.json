@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "draft_message result",
-  "description": "Mirrors the frontend DraftMessageCard result (DraftMessageToolResult).",
+  "description": "Mirrors DraftEmailOutput ({ recipients, subject, body, requiredNextAction }). requiredNextAction currently carries a STALE directive to call the deleted emit_followups tool (backend defect — see hand-off D1); it is deliberately optional and its content is not asserted, so the backend cleanup will not break this contract.",
   "type": "object",
   "required": ["recipients", "subject", "body"],
   "additionalProperties": true,
@@ -20,6 +20,7 @@
       }
     },
     "subject": { "type": "string" },
-    "body": { "type": "string" }
+    "body": { "type": "string" },
+    "requiredNextAction": { "type": ["string", "null"] }
   }
 }

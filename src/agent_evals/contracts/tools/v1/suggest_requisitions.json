@@ -1,11 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "suggest_requisitions result",
-  "description": "Mirrors the frontend AIRoleMatchCard result ({ matches: RequisitionMatch[] }).",
+  "description": "Mirrors SuggestRequisitionsOutput ({ matches: RequisitionMatch[], count }). matchScore is the backend RequisitionMatchScore enum (GOOD | STRONG) — kept lenient as a string. Each match embeds the full requisition (ViewRequisitionOutput) incl. a resolved recruiter.",
   "type": "object",
   "required": ["matches"],
   "additionalProperties": true,
   "properties": {
+    "count": { "type": ["integer", "null"] },
     "matches": {
       "type": "array",
       "items": {
@@ -17,7 +18,15 @@
           "matchReasoning": { "type": ["string", "null"] },
           "gapReasoning": { "type": ["string", "null"] },
           "rerankerScore": { "type": ["number", "null"] },
-          "skills": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name"],
+              "additionalProperties": true,
+              "properties": { "name": { "type": "string" } }
+            }
+          },
           "requisition": {
             "type": "object",
             "required": ["requisitionId"],

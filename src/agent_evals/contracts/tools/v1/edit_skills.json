@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "get_skills result",
-  "description": "Mirrors ToolResponse<GetSkillsOutput>: a state-update acknowledgement. The skills payload itself no longer rides on the tool result — it is written to session state under `skills` (asserted separately via the state contract contracts/state/v1/skills.json).",
+  "title": "edit_skills result",
+  "description": "Mirrors ToolResponse<EditSkillsOutput>: a state-update acknowledgement for the chat-editing path (new capability). The edited skills are written to session state under `skills` (asserted separately via the state contract contracts/state/v1/skills.json); persistence happens only via save_skills.",
   "type": "object",
   "required": ["status", "data"],
   "additionalProperties": true,

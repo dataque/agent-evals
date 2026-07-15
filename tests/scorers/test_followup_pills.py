@@ -1,5 +1,6 @@
-"""#25 Follow-up Pills Correctness — scenario_id + exact pill set, read from the
-emit_followups tool result or a server-side CUSTOM event."""
+"""#25 Follow-up Pills Correctness — the pill set is read from the NEXT_STEPS
+CUSTOM event (pills refactor: the emit_followups tool is gone and the scenario
+id does not ride the wire). Legacy captures still extract via the fallbacks."""
 
 from __future__ import annotations
 
@@ -18,46 +19,76 @@ def _run(**kw) -> RunRecord:
     return RunRecord(thread_id="t", run_id="r", **kw)
 
 
-def _emit(scenario: str, pills: list[str]) -> ToolCall:
-    return ToolCall(
-        tool_call_id="e1", name="emit_followups",
-        result={"scenarioId": scenario, "pills": [{"id": str(i), "text": t} for i, t in enumerate(pills)]},
-    )
+def _next_steps(pills: list[str], seq: int = 1) -> Event:
+    return Event(seq=seq, type="CUSTOM",
+                 payload={"type": "CUSTOM", "name": "NEXT_STEPS",
+                          "value": [{"id": str(i), "suggestion": t} for i, t in enumerate(pills)]})
 
 
 def test_pills_exact_match():
-    run = _run(tool_calls=[_emit("profile_analyzed", ["Find matching roles", "Update my skills"])])
+    run = _run(events=[_next_steps(["Suggest open roles", "What else can you help me with?"])])
     s = FollowupPillsCorrectness().score(_ctx(
-        run, expected_scenario_id="profile_analyzed",
-        expected_pills=["Find matching roles", "Update my skills"]))
+        run, expected_pills=["Suggest open roles", "What else can you help me with?"]))
     assert s.value == 1.0 and s.passed
+    assert s.details["next_steps_event_count"] == 1
 
 
 def test_pills_order_insensitive():
-    run = _run(tool_calls=[_emit("profile_analyzed", ["Update my skills", "Find matching roles"])])
+    run = _run(events=[_next_steps(["Suggest open roles", "Suggest improvements to my skills"])])
     s = FollowupPillsCorrectness().score(_ctx(
-        run, expected_pills=["Find matching roles", "Update my skills"]))
+        run, expected_pills=["Suggest improvements to my skills", "Suggest open roles"]))
     assert s.value == 1.0
 
 
-def test_wrong_scenario_and_missing_pill():
-    run = _run(tool_calls=[_emit("no_matches", ["Update my skills"])])
+def test_missing_pill_fails():
+    run = _run(events=[_next_steps(["Suggest open roles"])])
     s = FollowupPillsCorrectness().score(_ctx(
-        run, expected_scenario_id="profile_analyzed",
-        expected_pills=["Find matching roles", "Update my skills"]))
+        run, expected_pills=["Suggest open roles", "How can I apply to a role?"]))
     assert s.value < 1.0 and not s.passed
-    assert s.details["scenario_ok"] is False
-    assert s.details["pills_missing"] == ["Find matching roles"]
+    assert s.details["pills_missing"] == ["How can I apply to a role?"]
 
 
-def test_pills_from_server_side_custom_event():
-    run = _run(events=[Event(seq=1, type="CUSTOM",
-                             payload={"scenarioId": "cold_start", "pills": ["Update my skills"]})])
-    s = FollowupPillsCorrectness().score(_ctx(run, expected_scenario_id="cold_start"))
+def test_scenario_id_is_derivational_metadata_only():
+    # expected_scenario_id rides along for traceability but is never scored —
+    # the NEXT_STEPS wire has no scenario id.
+    run = _run(events=[_next_steps(["Please save these skills to my profile"])])
+    s = FollowupPillsCorrectness().score(_ctx(
+        run, expected_scenario_id="SkillsEdited",
+        expected_pills=["Please save these skills to my profile"]))
     assert s.value == 1.0
-    assert s.details["observed_scenario_id"] == "cold_start"
+    assert s.details["expected_scenario_id"] == "SkillsEdited"
+    assert s.details["observed_scenario_id"] is None
+
+
+def test_scenario_id_only_skips():
+    run = _run(events=[_next_steps(["Suggest open roles"])])
+    s = FollowupPillsCorrectness().score(_ctx(run, expected_scenario_id="ColdStart"))
+    assert s.skipped
+
+
+def test_double_emit_flagged_and_last_emission_scored():
+    run = _run(events=[
+        _next_steps(["Suggest open roles"], seq=1),
+        _next_steps(["What else can you help me with?"], seq=2),
+    ])
+    s = FollowupPillsCorrectness().score(_ctx(
+        run, expected_pills=["What else can you help me with?"]))
+    assert s.value == 1.0
+    assert s.details["next_steps_event_count"] == 2
+    assert s.details["double_emit"] is True
+
+
+def test_legacy_emit_followups_capture_still_extracts():
+    run = _run(tool_calls=[ToolCall(
+        tool_call_id="e1", name="emit_followups",
+        result={"scenarioId": "cold_start",
+                "pills": [{"id": "1", "text": "Update my skills"}]},
+    )])
+    s = FollowupPillsCorrectness().score(_ctx(run, expected_pills=["Update my skills"]))
+    assert s.value == 1.0
+    assert s.details["next_steps_event_count"] == 0
 
 
 def test_skips_without_expectations():
-    run = _run(tool_calls=[_emit("x", ["y"])])
+    run = _run(events=[_next_steps(["x"])])
     assert FollowupPillsCorrectness().score(_ctx(run)).skipped

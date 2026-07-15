@@ -30,6 +30,9 @@ def _create_thread_response() -> httpx.Response:
     return httpx.Response(200, json={"data": {"createThread": {"id": _THREAD_ID}}})
 
 
+# New-wire turn: skills tools ack via the {status, data:{result}} envelope, the
+# skills payload rides STATE_SNAPSHOT, and pills arrive as a NEXT_STEPS CUSTOM
+# event before RUN_FINISHED.
 TURN1 = [
     {"type": "RUN_STARTED", "timestamp": 1},
     {"type": "TEXT_MESSAGE_START", "messageId": "m1", "role": "assistant", "timestamp": 2},
@@ -38,8 +41,14 @@ TURN1 = [
     {"type": "TOOL_CALL_START", "toolCallId": "tc1", "toolCallName": "suggest_skills", "timestamp": 5},
     {"type": "TOOL_CALL_ARGS", "toolCallId": "tc1", "delta": "{}", "timestamp": 6},
     {"type": "TOOL_CALL_END", "toolCallId": "tc1", "timestamp": 7},
-    {"type": "TOOL_CALL_RESULT", "toolCallId": "tc1", "content": '{"top":[],"additional":[]}', "timestamp": 8},
-    {"type": "RUN_FINISHED", "timestamp": 9},
+    {"type": "STATE_SNAPSHOT",
+     "snapshot": {"skills": {"top": [{"name": "Python", "source": "AI_INFERRED"}], "additional": []}},
+     "timestamp": 8},
+    {"type": "TOOL_CALL_RESULT", "toolCallId": "tc1",
+     "content": '{"status":"SUCCESS","data":{"result":"State property skills updated."}}', "timestamp": 9},
+    {"type": "CUSTOM", "name": "NEXT_STEPS",
+     "value": [{"id": "p1", "suggestion": "Please save these skills to my profile"}], "timestamp": 10},
+    {"type": "RUN_FINISHED", "timestamp": 11},
 ]
 TURN2 = [
     {"type": "RUN_STARTED", "timestamp": 1},
@@ -82,6 +91,11 @@ def test_creates_thread_then_runs():
     assert rec.completion_status == CompletionStatus.COMPLETED
     assert rec.assistant_text == "Here are your skills."
     assert rec.tool_names() == ["suggest_skills"]
+    # the new wire lands: state snapshot applied + NEXT_STEPS captured
+    assert rec.final_state == {"skills": {"top": [{"name": "Python", "source": "AI_INFERRED"}],
+                                          "additional": []}}
+    assert any(e.type == "CUSTOM" and (e.payload or {}).get("name") == "NEXT_STEPS"
+               for e in rec.events)
     assert rec.usage.source == UsageSource.ESTIMATED and rec.usage.total_tokens > 0
     arrivals = [e.arrival_ms for e in rec.events]
     assert arrivals == sorted(arrivals)
@@ -124,6 +138,31 @@ def test_create_thread_can_be_disabled():
     session = Session(t, Identity(user_id="U", token_provider=LocalJwtMinter("U")))
     rec = session.ask("hi")
     assert rec.completion_status == CompletionStatus.COMPLETED  # uses the session's own threadId
+
+
+def test_drains_late_events_after_run_finished():
+    # AG-UI forbids events after RUN_FINISHED, but the backend has raced pills
+    # past it before — the transport must drain to EOF instead of breaking at
+    # the first RUN_FINISHED, and the run still completes cleanly.
+    late = [
+        {"type": "RUN_STARTED", "timestamp": 1},
+        {"type": "TEXT_MESSAGE_CHUNK", "messageId": "m", "delta": "Done.", "timestamp": 2},
+        {"type": "RUN_FINISHED", "timestamp": 3},
+        {"type": "CUSTOM", "name": "NEXT_STEPS",
+         "value": [{"id": "p1", "suggestion": "Suggest open roles"}], "timestamp": 4},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/graphql"):
+            return _create_thread_response()
+        return httpx.Response(200, headers={"content-type": "text/event-stream"},
+                              content=_sse_wire(late))
+
+    session = Session(_make_transport(handler), Identity(user_id="U", token_provider=LocalJwtMinter("U")))
+    rec = session.ask("save")
+    assert rec.completion_status == CompletionStatus.COMPLETED
+    custom_names = [(e.payload or {}).get("name") for e in rec.events if e.type == "CUSTOM"]
+    assert "NEXT_STEPS" in custom_names
 
 
 def test_thread_creation_failure_is_errored():

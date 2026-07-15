@@ -1,7 +1,19 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "save_skills result",
-  "description": "Mirrors SaveSkillsOutput (confirmation of the persisted skill list). Lenient pending capture — tighten required fields once the real result shape is observed.",
+  "description": "Mirrors ToolResponse<SaveSkillsOutput>: a persistence acknowledgement. save_skills takes NO arguments — it persists the session state's `skills` property to the profile. data.result is 'Saved content from state property skills to disk.' on success, or 'No skills found in state property skills. Nothing was saved.' when state was empty (a no-op save; the reducer marks it is_error so audit/action #16 does not false-pass).",
   "type": "object",
-  "additionalProperties": true
+  "required": ["status", "data"],
+  "additionalProperties": true,
+  "properties": {
+    "status": { "type": "string", "enum": ["SUCCESS", "FAILURE"] },
+    "data": {
+      "type": "object",
+      "required": ["result"],
+      "additionalProperties": true,
+      "properties": {
+        "result": { "type": "string" }
+      }
+    }
+  }
 }

@@ -56,3 +56,20 @@ def get_registry(version: str = "v1") -> ContractRegistry:
         for path in sorted(base.glob("*.json")):
             schemas[path.stem] = json.loads(path.read_text())
     return ContractRegistry(schemas, version=version)
+
+
+@functools.lru_cache(maxsize=None)
+def get_state_registry(version: str = "v1") -> ContractRegistry:
+    """Registry of session-STATE property contracts (``contracts/state/<version>/``).
+
+    Keyed by state property name (e.g. ``skills``) rather than tool name. Used by
+    metric #4 to validate ``RunRecord.final_state[<prop>]`` after a state-bearing
+    tool ran: the skills tools return only an ack — the payload the frontend
+    renders lives in session state, surfaced via AG-UI STATE_SNAPSHOT.
+    """
+    base = Path(__file__).parent / "state" / version
+    schemas: dict[str, dict] = {}
+    if base.is_dir():
+        for path in sorted(base.glob("*.json")):
+            schemas[path.stem] = json.loads(path.read_text())
+    return ContractRegistry(schemas, version=version)

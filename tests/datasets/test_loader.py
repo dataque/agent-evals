@@ -22,12 +22,15 @@ def test_load_bundled_hr_suite():
     cases = load_suite("hr")
     by_id = {c.id: c for c in cases}
 
-    # talent-profile cluster: suggesting never saves; the Figma conversational
-    # edit must DEFLECT (no tool, no save) per the current backend prompt.
+    # talent-profile cluster: suggesting never saves; skill edits are now a chat
+    # capability (edit_skills stages session state; Confirm → save_skills
+    # persists) — the old deflect behaviour is retired for SKILL edits.
     assert by_id["suggest-skills-figma-pill"].expectations.expected_tool_calls == ["suggest_skills"]
     assert by_id["suggest-skills-figma-pill"].expectations.expected_actions == []
     assert by_id["save-skills-confirm-trigger"].expectations.expected_actions == ["save_skills"]
-    assert by_id["save-skills-conversational-edit-must-deflect"].expectations.expected_tool_calls == []
+    assert "edit_skills" in by_id["save-skills-confirm-trigger"].expectations.expected_tool_calls
+    assert by_id["edit-skills-conversational"].expectations.expected_tool_calls == ["edit_skills"]
+    assert by_id["edit-skills-conversational"].expectations.expected_actions == []
 
     # requisitions cluster: precondition tag parses.
     assert by_id["find-roles-canonical-matches"].requires == ["has_matched_requisitions"]
@@ -37,7 +40,11 @@ def test_load_bundled_hr_suite():
     assert chain.is_multi_turn and chain.requires == ["has_matched_requisitions"]
     draft_turn = chain.as_turns()[3]
     assert draft_turn.expectations.expected_tool_calls == ["draft_message"]
-    assert draft_turn.expectations.expected_scenario_id == "draft_complete"
+    # post pills-refactor: scenario ids are the backend NextSteps scenario names
+    # (derivational metadata); the scored golden is the pill set.
+    assert draft_turn.expectations.expected_scenario_id == "DraftComplete"
+    assert draft_turn.expectations.expected_pills == [
+        "How can I apply to a role?", "What else can you help me with?"]
     assert by_id["journey-role-qa-hiring-manager"].as_turns()[-1].expectations.must_refuse is True
 
     # metadata stamped by the loader
@@ -53,11 +60,14 @@ def test_bundled_hr_suite_has_no_golden_gaps():
     seen_meta: set[str] = set()
     # expected_response is intentionally NOT used — goldens are data-independent
     # (no pinned answers), so answer_equivalence (#6) is retired for this eval.
+    # expected_tool_args (#3) is back: structural $-matcher goldens derived from
+    # the backend tool input records + user-provided values (no pinned env data).
     golden_fields = (
         "response_must_contain", "forbidden_substrings",
         "expected_tool_calls", "expected_tool_args", "allowed_tool_calls",
-        "expected_actions", "max_steps", "expected_routes", "remembered_facts",
-        "must_refuse", "expected_redirect", "other_user_id", "rubric",
+        "expected_pills", "expected_actions", "max_steps", "expected_routes",
+        "remembered_facts", "must_refuse", "expected_redirect", "other_user_id",
+        "rubric",
     )
     for c in cases:
         seen_meta |= set(c.metadata)
@@ -66,7 +76,7 @@ def test_bundled_hr_suite_has_no_golden_gaps():
                 if getattr(turn.expectations, field) is not None:
                     seen_exp.add(field)
 
-    for field in ("expected_tool_args", "rubric", "must_refuse", "expected_routes"):
+    for field in ("expected_tool_args", "rubric", "must_refuse", "expected_routes", "expected_pills"):
         assert field in seen_exp, f"golden gap remains: {field}"
     assert "user_feedback" in seen_meta, "golden gap remains: metadata.user_feedback (#23)"
 

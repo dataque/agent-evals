@@ -29,7 +29,10 @@ class Expectations(BaseModel):
 
     # Tool expectations
     expected_tool_calls: list[str] | None = None        # #2 tool selection
-    expected_tool_args: dict[str, dict[str, Any]] | None = None  # #3 tool args
+    # #3 tool args — values are literals (exact match) or $-matcher specs
+    # ($exists/$type/$in/$regex/$size/$contains/$contains_all; see
+    # scorers/tool_arguments.py) so shapes are asserted without pinning env data
+    expected_tool_args: dict[str, dict[str, Any]] | None = None
     allowed_tool_calls: list[str] | None = None         # #19 plan quality envelope
     expected_actions: list[str] | None = None           # #16 audit log / action taken
     expected_artifacts: dict[str, str] | None = None     # {name: schema_id}

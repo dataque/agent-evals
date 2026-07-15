@@ -1,12 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "answer_requisition_questions result",
-  "description": "Mirrors AnswerRequisitionQuestionsOutput: whether the JD contained the answer, plus the answer text.",
+  "description": "Mirrors AnswerRequisitionQuestionsOutput: whether the JD contained the answer, plus the (nullable) answer text. The former questionSummary field was removed backend-side.",
   "type": "object",
-  "required": ["requisitionContainsAnswer", "answer"],
+  "required": ["requisitionContainsAnswer"],
   "additionalProperties": true,
   "properties": {
     "requisitionContainsAnswer": { "type": "boolean" },
-    "answer": { "type": "string" }
+    "answer": { "type": ["string", "null"] }
   }
 }

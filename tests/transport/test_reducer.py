@@ -193,6 +193,29 @@ def test_string_error_result_flags_error():
     assert not ok.tool_calls[0].is_error
 
 
+def test_noop_save_envelope_flags_error():
+    # New backend: save_skills returns a SUCCESS envelope even when the session
+    # state held no skills ("... Nothing was saved."). That no-op must be ERROR
+    # or audit/action (#16) false-passes a save that never persisted anything.
+    def _save_events(ack: str):
+        return [
+            ev("RUN_STARTED", 0, 1.0),
+            ev("TOOL_CALL_START", 1, 2.0, toolCallId="s", toolCallName="save_skills"),
+            ev("TOOL_CALL_ARGS", 2, 3.0, toolCallId="s", delta="{}"),
+            ev("TOOL_CALL_END", 3, 4.0, toolCallId="s"),
+            ev("TOOL_CALL_RESULT", 4, 5.0, toolCallId="s",
+               content='{"status":"SUCCESS","data":{"result":"' + ack + '"}}'),
+            ev("RUN_FINISHED", 5, 6.0),
+        ]
+
+    noop = reduce_events(_save_events(
+        "No skills found in state property skills. Nothing was saved."))
+    assert noop.tool_calls[0].is_error and noop.tool_calls[0].status == ToolStatus.ERROR
+    saved = reduce_events(_save_events(
+        "Saved content from state property skills to disk."))
+    assert not saved.tool_calls[0].is_error and saved.tool_calls[0].status == ToolStatus.OK
+
+
 def test_task_routing_and_steps():
     events = [
         ev("RUN_STARTED", 0, 1.0),

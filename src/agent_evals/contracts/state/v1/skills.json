@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "session-state `skills` property",
+  "description": "The skills payload the frontend renders, surfaced via AG-UI STATE_SNAPSHOT (session state property `skills`, backend Skills record). Written by get_skills (saved skills), suggest_skills (inferred skills), and edit_skills (chat edits); read by save_skills. Validated against RunRecord.final_state['skills'] whenever one of those tools ran this turn.",
+  "type": "object",
+  "required": ["top"],
+  "additionalProperties": true,
+  "properties": {
+    "top": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/skill" }
+    },
+    "additional": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/definitions/skill" }
+    }
+  },
+  "definitions": {
+    "skill": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "source": { "type": ["string", "null"] },
+        "name": { "type": "string" }
+      }
+    }
+  }
+}
