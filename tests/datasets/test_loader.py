@@ -29,7 +29,8 @@ def test_load_bundled_hr_suite():
     assert by_id["suggest-skills-figma-pill"].expectations.expected_actions == []
     assert by_id["save-skills-confirm-trigger"].expectations.expected_actions == ["save_skills"]
     assert "edit_skills" in by_id["save-skills-confirm-trigger"].expectations.expected_tool_calls
-    assert by_id["edit-skills-conversational"].expectations.expected_tool_calls == ["edit_skills"]
+    # conversational edit references existing skills → agent reads first (run3+run4)
+    assert by_id["edit-skills-conversational"].expectations.expected_tool_calls == ["get_skills", "edit_skills"]
     assert by_id["edit-skills-conversational"].expectations.expected_actions == []
 
     # requisitions cluster: precondition tag parses.
