@@ -98,7 +98,9 @@ AGENT_EVALS_USER_LOGIN_ID=<your-real-login-id> pytest tests/test_live_smoke.py -
 **The agent serves only the caller's own profile** (resolved from the JWT user
 login id), so use a **real login id that already has a profile** (e.g. your own) — a
 fake/missing one makes the agent reply *"I can't find your profile."* The harness
-creates the chat thread automatically (GraphQL `createThread`) before the first turn.
+creates the chat session automatically (GraphQL `createSession`) before the first
+turn; if that call fails, the backend lazily creates a session for the run's
+threadId, so the turn still proceeds.
 
 For non-local environments, keep the no-SSO `local_jwt` auth (the minted token
 carries `roles` + the `readwrite.api.bff` scope) pointed at the forwarded URL, or

@@ -26,8 +26,9 @@ def _sse_wire(events: list[dict]) -> bytes:
     return buf.encode("utf-8")
 
 
-def _create_thread_response() -> httpx.Response:
-    return httpx.Response(200, json={"data": {"createThread": {"id": _THREAD_ID}}})
+def _create_session_response() -> httpx.Response:
+    # branch-aware backend: createThread was replaced by createSession
+    return httpx.Response(200, json={"data": {"createSession": {"id": _THREAD_ID}}})
 
 
 # New-wire turn: skills tools ack via the {status, data:{result}} envelope, the
@@ -71,7 +72,7 @@ def test_creates_thread_then_runs():
         if request.url.path.endswith("/graphql"):
             captured["graphql_url"] = str(request.url)
             captured["graphql_auth"] = request.headers.get("authorization")
-            return _create_thread_response()
+            return _create_session_response()
         captured["sse_auth"] = request.headers.get("authorization")
         captured["body"] = json.loads(request.content)
         return httpx.Response(200, headers={"content-type": "text/event-stream"},
@@ -107,7 +108,7 @@ def test_multi_turn_reuses_one_thread():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/graphql"):
             calls["graphql"] += 1
-            return _create_thread_response()
+            return _create_session_response()
         body = json.loads(request.content)
         events = TURN1 if len(body["messages"]) == 1 else TURN2
         return httpx.Response(200, headers={"content-type": "text/event-stream"},
@@ -154,7 +155,7 @@ def test_drains_late_events_after_run_finished():
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/graphql"):
-            return _create_thread_response()
+            return _create_session_response()
         return httpx.Response(200, headers={"content-type": "text/event-stream"},
                               content=_sse_wire(late))
 
@@ -165,12 +166,33 @@ def test_drains_late_events_after_run_finished():
     assert "NEXT_STEPS" in custom_names
 
 
-def test_thread_creation_failure_is_errored():
-    # backend rejects the createThread call -> errored RunRecord, not a raise
+def test_create_session_failure_falls_back_to_lazy_creation():
+    # createSession fails (e.g. GraphQL error) but the run itself works: the
+    # orchestrator lazily creates a session for the unknown threadId, so the
+    # turn completes cleanly with the harness's own thread id.
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/graphql"):
+            return httpx.Response(200, json={"errors": [{"message": "boom"}]})
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, headers={"content-type": "text/event-stream"},
+                              content=_sse_wire(TURN2))
+
+    session = Session(_make_transport(handler), Identity(user_id="U", token_provider=LocalJwtMinter("U")))
+    rec = session.ask("hello")
+    assert rec.completion_status == CompletionStatus.COMPLETED
+    assert rec.error is None
+    assert captured["body"]["threadId"] == session.state.thread_id != _THREAD_ID
+
+
+def test_create_session_and_run_failure_is_errored():
+    # both the explicit create AND the run fail -> errored RunRecord carrying
+    # the createSession context, not a raise
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": "unauthorized"})
 
     session = Session(_make_transport(handler), Identity(user_id="U", token_provider=LocalJwtMinter("U")))
     rec = session.ask("hello")
     assert rec.completion_status == CompletionStatus.ERRORED
-    assert rec.error is not None and "createThread" in rec.error.message
+    assert rec.error is not None and "createSession" in rec.error.message
