@@ -30,6 +30,11 @@ class ToolSelectionAccuracy:
             return Score.skip(self.spec.metric, "no expected_tool_calls in expectations")
         observed = filter_infrastructure(ctx.run.tool_names(), ctx.config)
         exp = filter_infrastructure(expected, ctx.config)
+        # optional tools (e.g. a non-deterministic pre-edit get_skills read) are
+        # neither rewarded nor penalized: drop from observed unless explicitly
+        # expected, so calling them can't count as an unexpected selection.
+        optional = {t for t in (ctx.expectations.optional_tool_calls or []) if t not in exp}
+        observed = {n for n in observed if n not in optional}
         precision, recall, fv = precision_recall_f1(exp, observed)
         return Score(
             metric=self.spec.metric,

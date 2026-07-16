@@ -29,6 +29,11 @@ class Expectations(BaseModel):
 
     # Tool expectations
     expected_tool_calls: list[str] | None = None        # #2 tool selection
+    # #2 tools that are neither required nor penalized if observed — e.g. a
+    # benign pre-edit `get_skills` read that the agent performs non-
+    # deterministically. Kept out of the F1 both ways so it isn't scored as a
+    # wrong tool selection.
+    optional_tool_calls: list[str] | None = None
     # #3 tool args — values are literals (exact match) or $-matcher specs
     # ($exists/$type/$in/$regex/$size/$contains/$contains_all; see
     # scorers/tool_arguments.py) so shapes are asserted without pinning env data
