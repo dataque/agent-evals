@@ -146,6 +146,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     params = {
         "suite": args.suite, "target": args.target, "metrics": args.metrics,
         "judge": default_name, "sink": args.sink, "version": agent_evals.__version__,
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
     print(f"Running {len(cases)} cases [{args.suite} → {args.target}] "
           f"with {len(scorers)} scorers, judge={default_name}, sink={args.sink} ...")
