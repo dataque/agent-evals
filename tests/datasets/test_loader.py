@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import agent_evals.datasets as _ds
-from agent_evals.datasets import load_suite
+from agent_evals.datasets import load_suite, suite_fingerprint
 
 # The bundled HR suite (datasets/hr/*.yaml) is gitignored / not shipped in the repo;
 # skip suite-dependent tests when it isn't present locally (e.g. a fresh clone).
@@ -52,6 +52,25 @@ def test_load_bundled_hr_suite():
 
     # metadata stamped by the loader
     assert all(c.metadata.get("suite") == "hr" for c in cases)
+
+
+def test_suite_fingerprint_identifies_the_dataset_bytes(tmp_path):
+    """The dataset is untracked, so a run's provenance depends on this (E5)."""
+    fp = suite_fingerprint("hr")
+    assert fp["suite"] == "hr"
+    assert fp["case_count"] == len(load_suite("hr"))
+    assert set(fp["files"]) == {p.name for p in _HR_SUITE.glob("*.y*ml")}
+    assert suite_fingerprint("hr")["digest"] == fp["digest"], "must be stable"
+
+    # any edit to any suite file moves the digest
+    (tmp_path / "a.yaml").write_text("- id: x\n  inputs: {question: hi}\n")
+    before = suite_fingerprint(str(tmp_path))["digest"]
+    (tmp_path / "a.yaml").write_text("- id: x\n  inputs: {question: hi there}\n")
+    assert suite_fingerprint(str(tmp_path))["digest"] != before
+    # as does adding one, even with the other file untouched
+    after_edit = suite_fingerprint(str(tmp_path))["digest"]
+    (tmp_path / "b.yaml").write_text("- id: y\n  inputs: {question: yo}\n")
+    assert suite_fingerprint(str(tmp_path))["digest"] != after_edit
 
 
 def test_bundled_hr_suite_has_no_golden_gaps():

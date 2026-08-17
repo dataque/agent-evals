@@ -27,27 +27,27 @@ def test_matches_present_and_absent():
     assert none["has_matched_requisitions"] is False and none["no_matched_requisitions"] is True
 
 
-def test_skills_read_from_session_state():
-    f = derive_hr_facts([_run(
+def test_no_has_skills_fact_is_derived():
+    """`has_skills` is deliberately gone (E10).
+
+    It was only ever derivable from a `get_skills` run, because suggest_skills
+    and edit_skills overwrite the same state property with inferred or staged
+    skills rather than saved ones. `get_skills` was removed from the product, so
+    the fact can never be true again and any `requires: has_skills` would skip
+    unconditionally. Deriving it as False would be worse than not deriving it:
+    False reads as "the environment has no skills", which is not what is known.
+    """
+    saved_shape = derive_hr_facts([_run(
         _tc("get_skills", _ACK),
         state={"skills": {"top": [{"name": "Python"}], "additional": []}},
     )])
-    assert f["has_skills"] is True
-    empty = derive_hr_facts([_run(
-        _tc("get_skills", _ACK),
-        state={"skills": {"top": [], "additional": []}},
-    )])
-    assert empty["has_skills"] is False
+    assert "has_skills" not in saved_shape
 
-
-def test_suggest_skills_state_is_not_saved_skills_evidence():
-    # suggest/edit_skills overwrite state.skills with INFERRED/edited skills —
-    # only a get_skills run is evidence of what is actually saved.
-    f = derive_hr_facts([_run(
+    inferred = derive_hr_facts([_run(
         _tc("suggest_skills", _ACK),
         state={"skills": {"top": [{"name": "Inferred"}], "additional": []}},
     )])
-    assert "has_skills" not in f
+    assert "has_skills" not in inferred
 
 
 def test_profile_completeness_from_analysis_result():
@@ -61,8 +61,9 @@ def test_profile_completeness_from_analysis_result():
 
 
 def test_absent_tool_means_absent_fact():
-    # no requisition tool ran this turn → the fact is simply not derivable, so a
-    # case that requires it will skip (not silently pass).
-    f = derive_hr_facts([_run(_tc("get_skills", _ACK), state={"skills": {"top": []}})])
+    # No requisition tool ran this turn, so the fact is simply not derivable.
+    # The runner distinguishes that from a fact derived False: absent means the
+    # agent never looked, which is scored as a failure rather than skipped (E8).
+    f = derive_hr_facts([_run(_tc("suggest_skills", _ACK))])
     assert "has_matched_requisitions" not in f
-    assert f["has_skills"] is False
+    assert "no_matched_requisitions" not in f

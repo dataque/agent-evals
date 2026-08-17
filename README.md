@@ -198,6 +198,17 @@ asserts behaviour, not specific records, so the same suite runs across
 environments; data-dependent cases self-skip per run and are reported in the
 summary. A calibrated reference run is kept locally as the frozen baseline.
 
+**Scope and calibration (2026-08-17).** The suite covers the **employee** persona:
+profile and skills, role discovery and Q&A, recruiter outreach. Hiring-manager
+capabilities are deliberately out of scope for this release, so three of the
+backend's agent prompts have no cases. The suite is calibrated mechanically, but
+parts of it still encode a capability model the product has moved past; the open
+work is tracked in
+[`docs/issues/EVAL-FIX-BACKLOG.md`](docs/issues/EVAL-FIX-BACKLOG.md) and sequenced
+in [`docs/issues/EVAL-FIX-PLAN.md`](docs/issues/EVAL-FIX-PLAN.md). Scorer and
+runner fixes can be validated without a live agent by replaying frozen runs with
+`agent-evals rescore`.
+
 The test suite runs fully offline (the transport is verified against a mock
 backend reproducing the exact AG-UI/SSE wire contract); the live smoke test runs
 against a real backend when `AGENT_EVALS_LIVE_URL` is set.

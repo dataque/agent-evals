@@ -79,6 +79,65 @@ def test_no_deriver_runs_everything():
     assert report.aggregates["ok.mean"] == 1.0
 
 
+def test_never_derived_fact_is_scored_not_skipped():
+    """A fact no tool produced means the agent probably never acted (E8).
+
+    That is a behavioural failure and must reach the scorers, unlike a fact that
+    was derived and came back False, which is a real environment condition.
+    """
+    case = _case("needs-matches", requires=["has_matched_requisitions"])
+    report = _runner([_OkScorer()], facts={}).run([case], run_name="t")
+    md = report.case_results[0].metadata
+    assert md.get("precondition_skipped") is None, "must NOT be skipped"
+    assert md["precondition_never_derived"] == ["has_matched_requisitions"]
+    assert report.aggregates["cases.scored"] == 1.0
+    assert report.aggregates["cases.precondition_never_derived"] == 1.0
+    assert "cases.skipped_precondition" not in report.aggregates
+    assert report.aggregates["ok.mean"] == 1.0  # the scorers actually ran
+
+
+def test_derived_false_still_skips():
+    """The other half of the split must keep its old behaviour."""
+    report = _runner([_OkScorer()], facts={"has_matched_requisitions": False}).run(
+        [_case("needs-matches", requires=["has_matched_requisitions"])], run_name="t")
+    md = report.case_results[0].metadata
+    assert md["precondition_skipped"] is True
+    assert "precondition_never_derived" not in md
+    assert report.aggregates["cases.skipped_precondition"] == 1.0
+    assert "cases.precondition_never_derived" not in report.aggregates
+
+
+def test_contradiction_is_asserted_against_run_wide_evidence():
+    """If one case derived a fact true, the environment supports it, so another
+    case that failed to derive it is the agent's doing (E8's skip-pair tell)."""
+
+    class _SplitDriver:
+        def __init__(self, case): self.case = case
+        def ask(self, question):
+            return RunRecord(thread_id="t", run_id="r", assistant_text="ok")
+
+    # 'proves' derives the fact true; 'masked' derives nothing at all
+    facts_by_case = {"proves": {"has_matched_requisitions": True}, "masked": {}}
+    holder = {}
+
+    def derive(runs):
+        return facts_by_case[holder["current"]]
+
+    class _TrackingRunner(Runner):
+        def _drive_case(self, case):
+            holder["current"] = case.id
+            return super()._drive_case(case)
+
+    runner = _TrackingRunner(session_factory=_SplitDriver, scorers=[_OkScorer()],
+                             sink=_NullSink(), config={"derive_facts": derive})
+    report = runner.run([_case("proves", requires=["has_matched_requisitions"]),
+                         _case("masked", requires=["has_matched_requisitions"])], run_name="t")
+
+    contradictions = report.aggregates["precondition_contradictions"]
+    assert [c["case_id"] for c in contradictions] == ["masked"]
+    assert contradictions[0]["fact"] == "has_matched_requisitions"
+
+
 def test_errored_scorer_is_visible_not_silent():
     report = _runner([_BoomScorer()]).run([_case("c1")], run_name="t")
     assert report.aggregates["boom.errors"] == 1.0     # surfaced, not dropped

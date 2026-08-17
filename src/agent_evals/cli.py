@@ -1,4 +1,4 @@
-"""Command-line entry point: ``agent-evals run`` / ``list-metrics``.
+"""Command-line entry point: ``agent-evals run`` / ``rescore`` / ``list-metrics``.
 
 Wires the neutral pieces together: load a target + suite, build the transport +
 identity, select scorers, bind judges, pick a sink, run, print a summary.
@@ -7,6 +7,7 @@ identity, select scorers, bind judges, pick a sink, run, print a summary.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import time
 from pathlib import Path
@@ -16,7 +17,7 @@ import yaml
 import agent_evals
 
 from .core.runner import Runner
-from .datasets import load_suite
+from .datasets import load_suite, suite_fingerprint
 from .datasets.facts import derive_hr_facts
 from .envfile import expand_env, load_dotenv
 from .judges import apply_per_metric_judges, build_judge
@@ -147,10 +148,110 @@ def cmd_run(args: argparse.Namespace) -> int:
         "suite": args.suite, "target": args.target, "metrics": args.metrics,
         "judge": default_name, "sink": args.sink, "version": agent_evals.__version__,
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        # The dataset is untracked, so without this a run cannot be shown to
+        # reflect the suite in the repo (E5).
+        "dataset": suite_fingerprint(args.suite),
     }
     print(f"Running {len(cases)} cases [{args.suite} → {args.target}] "
           f"with {len(scorers)} scorers, judge={default_name}, sink={args.sink} ...")
     report = runner.run(cases, run_name=run_name, params=params)
+    _print_summary(report, run_name, args)
+    return 0
+
+
+def cmd_rescore(args: argparse.Namespace) -> int:
+    """Re-score a frozen run through the current scorers, with no live agent.
+
+    This is how a scorer or calibration change is verified: the transcripts are
+    fixed, so any movement in a deterministic metric is attributable to the code
+    change. Judged metrics still carry judge variance and must be read on row
+    counts and direction, not exact means.
+    """
+    from .replay import ReplayError, build_replay_factory, load_recorded_runs, reconcile
+
+    src = Path(args.run)
+    if not src.is_dir():
+        raise SystemExit(f"run directory not found: {src}")
+    try:
+        src_params = json.loads((src / "params.json").read_text())
+    except FileNotFoundError:
+        src_params = {}
+
+    suite = args.suite or src_params.get("suite") or "hr"
+    metrics = args.metrics or src_params.get("metrics") or "all"
+
+    cfg = _load_config(args.config)
+    judge_cfg = cfg.get("judge", {}) or {}
+    scoring_cfg = cfg.get("scoring", {}) or {}
+
+    try:
+        records_by_case = load_recorded_runs(src)
+    except ReplayError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    cases = load_suite(suite)
+    replayable, missing_rec, missing_suite = reconcile(cases, records_by_case)
+    if missing_rec or missing_suite:
+        lines = ["the suite and the recording do not match:"]
+        if missing_rec:
+            lines.append(f"  in the suite but never recorded ({len(missing_rec)}): "
+                         f"{', '.join(sorted(missing_rec))}")
+        if missing_suite:
+            lines.append(f"  recorded but no longer in the suite ({len(missing_suite)}): "
+                         f"{', '.join(sorted(missing_suite))}")
+        if not args.allow_partial:
+            lines.append("Re-capture live, or pass --allow-partial to score only the "
+                         "cases that still match.")
+            raise SystemExit("\n".join(lines))
+        for line in lines:
+            print(line)
+        print(f"--allow-partial: scoring {len(replayable)} of {len(cases)} cases.\n")
+    if not replayable:
+        raise SystemExit("nothing to replay: no case in the suite appears in the recording")
+
+    fingerprint = suite_fingerprint(suite)
+    recorded_fp = src_params.get("dataset") or {}
+    if recorded_fp and recorded_fp.get("digest") != fingerprint["digest"]:
+        print(f"WARNING: dataset digest differs from the recording "
+              f"({recorded_fp.get('digest')} recorded, {fingerprint['digest']} now). "
+              "Goldens have changed since this run; scores are being recomputed "
+              "against the CURRENT dataset.\n")
+    elif not recorded_fp:
+        print("NOTE: this run predates dataset fingerprinting, so the goldens it was "
+              "originally scored against cannot be confirmed (E5).\n")
+
+    scorers = get_scorers(metrics)
+    default_name = args.judge or judge_cfg.get("default", "heuristic")
+    default_judge = build_judge(default_name)
+    apply_per_metric_judges(scorers, default=default_judge, per_metric=judge_cfg.get("per_metric"))
+
+    sink = (
+        MlflowSink(experiment=args.experiment, tracking_uri=args.tracking_uri)
+        if args.sink == "mlflow"
+        else JsonlSink(out_dir=args.out)
+    )
+    run_config = {**scoring_cfg, "derive_facts": derive_hr_facts}
+    runner = Runner(session_factory=build_replay_factory(records_by_case), scorers=scorers,
+                    sink=sink, judge=default_judge, config=run_config)
+    run_name = args.run_name or f"{src.name}-rescore-{time.strftime('%Y%m%d-%H%M%S')}"
+    params = {
+        # Loud, machine-readable provenance: a replayed summary must never be
+        # mistaken for a live run.
+        "replay": True,
+        "replay_source": str(src),
+        "replay_source_started_at": src_params.get("started_at"),
+        "replay_partial": bool(missing_rec or missing_suite),
+        "suite": suite, "target": src_params.get("target"), "metrics": metrics,
+        "judge": default_name, "sink": args.sink, "version": agent_evals.__version__,
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "dataset": fingerprint,
+    }
+    print(f"Replaying {len(replayable)} cases from {src} "
+          f"with {len(scorers)} scorers, judge={default_name} ...")
+    try:
+        report = runner.run(replayable, run_name=run_name, params=params)
+    except ReplayError as exc:
+        raise SystemExit(f"replay aborted: {exc}") from exc
     _print_summary(report, run_name, args)
     return 0
 
@@ -180,6 +281,18 @@ def _print_summary(report, run_name: str, args: argparse.Namespace) -> None:
         print(f"Skipped — precondition not met in this environment ({len(skipped)}):")
         for s in skipped:
             print(f"  {s['case_id']:<40} requires {s.get('requires')}")
+    violations = agg.get("route_violations") or []
+    if violations:
+        print(f"\nROUTE VIOLATIONS ({len(violations)}) — a turn reached an agent outside its envelope:")
+        for v in violations:
+            print(f"  {v['case_id']} t{v.get('turn_index')}: "
+                  f"{v.get('outside_envelope')} not in {v.get('expected_routes')}")
+    undrivable = agg.get("precondition_never_derived_cases") or []
+    if undrivable:
+        print(f"\nScored despite an underivable precondition ({len(undrivable)}) — "
+              "the fact-bearing tool never ran:")
+        for u in undrivable:
+            print(f"  {u['case_id']:<40} never derived {u.get('never_derived')}")
     if args.sink == "jsonl":
         print(f"\nWrote results to {Path(args.out) / run_name}/")
 
@@ -230,6 +343,22 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--timeout", type=float, default=None, help="per-turn timeout (s)")
     r.add_argument("--limit", type=int, default=None, help="only run the first N cases")
     r.set_defaults(func=cmd_run)
+
+    rs = sub.add_parser("rescore", help="Re-score a frozen run's transcripts (no live agent).")
+    rs.add_argument("--run", required=True, help="path to a jsonl run dir, e.g. eval-runs/eval_run12")
+    rs.add_argument("--metrics", default=None, help="defaults to the recorded run's selection")
+    rs.add_argument("--suite", default=None, help="defaults to the recorded run's suite")
+    rs.add_argument("--sink", choices=["jsonl", "mlflow"], default="jsonl")
+    rs.add_argument("--judge", default=None, help="override the default judge backend")
+    rs.add_argument("--config", default=None, help="path to a targets.yaml (defaults to bundled)")
+    rs.add_argument("--out", default="eval-runs", help="output dir for the jsonl sink")
+    rs.add_argument("--experiment", default="agent-evals", help="MLflow experiment name")
+    rs.add_argument("--tracking-uri", default=None, help="MLflow tracking URI")
+    rs.add_argument("--run-name", default=None)
+    rs.add_argument("--allow-partial", action="store_true",
+                    help="score only the cases that still match the recording, instead of "
+                         "refusing when the suite has drifted")
+    rs.set_defaults(func=cmd_rescore)
 
     f = sub.add_parser("ingest-feedback", help="Aggregate production user feedback (#23) into a sink.")
     f.add_argument("--input", required=True, help="path to feedback .jsonl/.json")

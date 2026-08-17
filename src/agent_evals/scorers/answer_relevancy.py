@@ -26,6 +26,13 @@ class AnswerRelevancy:
         judge = resolve_judge(self, ctx)
         if judge is None:
             return Score.skip(self.spec.metric, "no judge configured")
+        if ctx.expectations.must_refuse:
+            # A correct refusal is deliberately NOT responsive to the question, so
+            # relevance inverts here: the better the guardrail holds, the worse
+            # this scored. refusal_correctness (#9) owns the outcome, exactly as
+            # in faithfulness.py and task_completion.py (E6).
+            return Score.skip(self.spec.metric,
+                              "must_refuse case - relevance judged by refusal_correctness (#9)")
         if (skip := require_text(ctx, self.spec.metric)):
             return skip
         return judged(self.spec.metric, judge, criteria=_CRITERIA,

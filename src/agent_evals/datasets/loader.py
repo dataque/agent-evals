@@ -7,6 +7,7 @@ suite directory under ``agent_evals/datasets/``.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import yaml
@@ -41,3 +42,30 @@ def load_suite(name_or_path: str) -> list[EvalCase]:
             case.metadata.setdefault("source", path.name)
             cases.append(case)
     return cases
+
+
+def suite_fingerprint(name_or_path: str) -> dict:
+    """Identify the exact dataset bytes a run was scored against (#E5).
+
+    The dataset is untracked, so ``git status`` says nothing about drift between
+    the working tree and whatever copy the run environment executed. Recording
+    this in ``params.json`` makes a stale-dataset run detectable from its own
+    artifacts, and lets the coverage reconcile assert dataset identity before
+    reporting OK.
+
+    ``digest`` covers the file names and their contents, so a rename, an edit, or
+    an added/removed suite file all change it.
+    """
+    paths, suite = _iter_paths(name_or_path)
+    per_file: dict[str, str] = {}
+    overall = hashlib.sha256()
+    for path in paths:  # _iter_paths sorts, so the digest is order-stable
+        data = path.read_bytes()
+        per_file[path.name] = hashlib.sha256(data).hexdigest()[:12]
+        overall.update(path.name.encode("utf-8") + b"\0" + data + b"\0")
+    return {
+        "suite": suite,
+        "digest": overall.hexdigest()[:16],
+        "files": per_file,
+        "case_count": len(load_suite(name_or_path)),
+    }

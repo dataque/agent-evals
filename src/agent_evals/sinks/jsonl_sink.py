@@ -47,7 +47,11 @@ class JsonlSink(MetricsSink):
             self._scores_f.write(_dumps(row) + "\n")
         self._scores_f.flush()
         for rec in runs:
-            self._runs_f.write(_dumps(rec.model_dump(mode="json")) + "\n")
+            # case_id is prepended (as in scores.jsonl) so a record is
+            # self-attributing: replay and any per-case analysis stop depending
+            # on file ordering to know which case a turn belongs to.
+            row = {"case_id": result.case_id, **rec.model_dump(mode="json")}
+            self._runs_f.write(_dumps(row) + "\n")
         self._runs_f.flush()
 
     def log_summary(self, aggregates: dict) -> None:

@@ -116,6 +116,12 @@ def match_value(expected: object, observed: object, path: str = "$") -> tuple[bo
                 return False, f"{path}: spec mixes matcher and plain keys {sorted(expected)}"
             return _apply_matchers(expected, observed, path)
         # nested subset pattern over an object
+        if observed is _MISSING:
+            # _MISSING is a bare sentinel, so the isinstance branch below used to
+            # report "expected an object, got object", a type error that did not
+            # exist, for a key that was simply absent. A renamed argument key then
+            # read as a malformed value (E9).
+            return False, f"{path}: missing"
         if not isinstance(observed, dict):
             return False, f"{path}: expected an object, got {type(observed).__name__}"
         for k, v in expected.items():

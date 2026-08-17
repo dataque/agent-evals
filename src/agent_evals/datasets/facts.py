@@ -32,17 +32,11 @@ def derive_hr_facts(runs: list[RunRecord]) -> dict:
         facts["has_matched_requisitions"] = bool(has)
         facts["no_matched_requisitions"] = not has
 
-    # Skills now live in SESSION STATE (the get_skills result is only a
-    # {status, data:{result}} ack): read final_state['skills'] from any run
-    # where get_skills actually ran. Note suggest_skills/edit_skills overwrite
-    # the same property with inferred/edited skills, so only get_skills runs
-    # are treated as evidence of SAVED skills.
-    for r in runs:
-        if any(tc.name == "get_skills" for tc in r.tool_calls):
-            state = r.final_state if isinstance(r.final_state, dict) else {}
-            skills = state.get("skills")
-            if isinstance(skills, dict):
-                facts["has_skills"] = bool(skills.get("top"))
+    # NOTE: there is deliberately no `has_skills` fact. It could only be derived
+    # from a `get_skills` run, because suggest_skills/edit_skills overwrite the
+    # same state property with inferred or staged skills rather than saved ones.
+    # `get_skills` was removed from the product, so the fact became underivable
+    # and any `requires: has_skills` would skip unconditionally (E10).
 
     # Profile completeness from the analyze_talent_profile result itself (the
     # old profile_analyzed / profile_not_set_up pill scenarios are gone with the
