@@ -23,11 +23,13 @@ targets:
       scopes: ["readwrite.api.bff"]   # scope REQUIRED by the chat SSE endpoint (deployment-specific)
       user_claim: "ubs_auth_gpn"      # JWT claim THIS backend reads the user id from (deployment-specific)
     timeout_s: 120
-    # What the BACKEND is running, recorded verbatim into params.json (E19). The
-    # eval can't set these and the backend doesn't announce them, so they are
-    # operator-declared: keep them in step with the backend's own LLM config or a
-    # model A/B is uncitable. Override per run with --model / --deployment /
-    # --reasoning-effort / --api-version.
+    # What the BACKEND is running, recorded into params.json (E19). The harness
+    # reads this from the backend's own actuator where it can (the GenAI meter
+    # gen_ai.client.operation for the model; configprops/env for reasoning effort
+    # and API version), so these values are the FALLBACK for whatever the
+    # actuator does not expose, and a declaration that disagrees with the running
+    # backend is recorded as a mismatch rather than believed. Override per run
+    # with --model / --deployment / --reasoning-effort / --api-version.
     model:
       name: "${AGENT_EVALS_LOCAL_MODEL:-}"                        # e.g. gpt-5.5
       deployment: "${AGENT_EVALS_LOCAL_DEPLOYMENT:-}"             # backend's deployment/endpoint name

@@ -30,6 +30,7 @@ from .transport import (
     Session,
     SessionState,
     StaticTokenProvider,
+    probe_backend,
 )
 
 
@@ -43,15 +44,9 @@ def _load_config(path: str | None) -> dict:
     return expand_env(yaml.safe_load(p.read_text()) or {})
 
 
-def _build_transport(target: dict, persist_dir: str | None) -> AgUiSseTransport:
-    transport = target.get("transport", "agui_sse")
-    if transport != "agui_sse":
-        raise SystemExit(f"unsupported transport: {transport!r} (only agui_sse in v1)")
-    base_url = (target.get("base_url") or "").strip()
-    if not base_url or "REPLACE-ME" in base_url:
-        raise SystemExit("target base_url is empty/unset — set the target's URL env var in a "
-                         ".env file (e.g. AGENT_EVALS_DEVPOD_BASE_URL; copy .env.example), or "
-                         "set base_url directly in the target config.")
+def _tls_verify(target: dict) -> bool | str:
+    """The target's TLS policy, shared by the SSE transport and the model probe
+    so both reach the same backend under the same trust rules."""
     tls = target.get("tls", {}) or {}
     if tls.get("use_truststore"):
         try:
@@ -62,11 +57,22 @@ def _build_transport(target: dict, persist_dir: str | None) -> AgUiSseTransport:
             raise SystemExit("tls.use_truststore set but truststore is unavailable; "
                              "run `pip install truststore`") from exc
     if tls.get("insecure"):
-        verify: bool | str = False
-    elif tls.get("ca_bundle"):
-        verify = tls["ca_bundle"]
-    else:
-        verify = True
+        return False
+    if tls.get("ca_bundle"):
+        return tls["ca_bundle"]
+    return True
+
+
+def _build_transport(target: dict, persist_dir: str | None) -> AgUiSseTransport:
+    transport = target.get("transport", "agui_sse")
+    if transport != "agui_sse":
+        raise SystemExit(f"unsupported transport: {transport!r} (only agui_sse in v1)")
+    base_url = (target.get("base_url") or "").strip()
+    if not base_url or "REPLACE-ME" in base_url:
+        raise SystemExit("target base_url is empty/unset — set the target's URL env var in a "
+                         ".env file (e.g. AGENT_EVALS_DEVPOD_BASE_URL; copy .env.example), or "
+                         "set base_url directly in the target config.")
+    verify = _tls_verify(target)
     return AgUiSseTransport(
         base_url,
         persist_dir=persist_dir,
@@ -124,23 +130,63 @@ def _judge_params(scorers, default_judge) -> tuple[dict, dict]:
 
 
 _BACKEND_FIELDS = ("model", "deployment", "reasoning_effort", "api_version")
+# No operator can declare these: they exist only if the backend reports them.
+_OBSERVED_ONLY_FIELDS = ("response_model", "provider")
 
 
-def _backend_params(target: dict, args: argparse.Namespace) -> dict:
+def _agrees(declared: str, observed: object) -> bool:
+    """Whether a declaration is consistent with what the backend reported.
+
+    An accumulated actuator tag can hold several values (a failover, or
+    per-agent models); the declaration matches if it is among them.
+    """
+    values = observed if isinstance(observed, list) else [observed]
+    return any(declared == str(v) for v in values)
+
+
+def _probe_backend(target: dict, identity: Identity, *, timeout_s: float = 5.0) -> dict | None:
+    """Ask the target's actuator what LLM it is running.
+
+    Returns ``None`` when there is nothing to ask (no ``base_url``), and
+    otherwise whatever the probe found, including a bare ``probe`` block
+    recording that the harness asked and was refused. Never raises: a run must
+    not fail because a metrics endpoint is absent or locked down.
+    """
+    base_url = (target.get("base_url") or "").strip()
+    if not base_url or "REPLACE-ME" in base_url:
+        return None
+    try:
+        token = identity.token_provider.get_token()
+    except Exception:  # noqa: BLE001 - an unauthenticated probe is still worth trying
+        token = None
+    return probe_backend(base_url, token=token, verify=_tls_verify(target), timeout_s=timeout_s)
+
+
+def _backend_params(target: dict, args: argparse.Namespace, probe: dict | None = None) -> dict:
     """What the system under test was running, for ``params.json`` (E19).
 
-    The backend does not announce its own LLM: no AG-UI event carries it and
-    ``usage.by_model`` is null on every turn, so this is *operator-declared* and
-    only as truthful as whoever declared it. That is exactly why it is stamped
-    with ``source: declared`` rather than presented as observed.
+    Two sources, and the block says per field which one answered.
 
-    Precedence: CLI flag > the target's ``model:`` block in the config (which may
-    itself come from ``.env``). Empty values are dropped so a run that declared
-    nothing is visibly empty rather than full of blank strings.
+    *Observed* comes from the backend's Spring Boot actuator: the GenAI meter
+    ``gen_ai.client.operation`` for model identity, the config endpoints for the
+    request options a Micrometer meter structurally cannot carry (reasoning
+    effort, API version, deployment). *Declared* is the operator's word, from
+    the target's ``model:`` block (which may itself come from ``.env``) with CLI
+    flags taking precedence over it.
+
+    Observed OUTRANKS declared, because it is a record of calls that actually
+    happened. When the two disagree the observed value is recorded and the
+    declaration is preserved beside it as ``declared_<field>`` with a
+    ``<field>_mismatch`` flag: a mismatch between what an operator believes and
+    what the pod is running is precisely the failure E19 exists to catch, so it
+    must survive into the bundle rather than being silently resolved.
+
+    Empty values are dropped so a run that declared nothing and observed nothing
+    is visibly empty rather than full of blank strings.
     """
     cfg = target.get("model") or {}
     # the config block reads `model: {name: ...}`; params.json keys it as `model`
-    declared = {("model" if k == "name" else k): v for k, v in cfg.items()
+    from_cfg = {("model" if k == "name" else k): v for k, v in cfg.items()
                 if k in _BACKEND_FIELDS or k == "name"}
     overrides = {
         "model": args.model,
@@ -148,16 +194,66 @@ def _backend_params(target: dict, args: argparse.Namespace) -> dict:
         "reasoning_effort": args.reasoning_effort,
         "api_version": args.api_version,
     }
-    merged = {**declared, **{k: v for k, v in overrides.items() if v}}
-    backend = {}
+    merged = {**from_cfg, **{k: v for k, v in overrides.items() if v}}
+    declared = {}
     for key in _BACKEND_FIELDS:
         value = str(merged.get(key) or "").strip()
         if value:
-            backend[key] = value
-    if not backend:
+            declared[key] = value
+
+    observed = {k: v for k, v in (probe or {}).items() if k != "probe" and v}
+
+    backend: dict = {}
+    field_source: dict = {}
+    for key in (*_BACKEND_FIELDS, *_OBSERVED_ONLY_FIELDS):
+        seen, said = observed.get(key), declared.get(key)
+        if seen:
+            backend[key] = seen
+            field_source[key] = "observed"
+            if said and not _agrees(said, seen):
+                backend[f"declared_{key}"] = said
+                backend[f"{key}_mismatch"] = True
+        elif said:
+            backend[key] = said
+            field_source[key] = "declared"
+
+    if not backend and not probe:
         return {}
-    backend["source"] = "declared"
+    kinds = set(field_source.values())
+    if not kinds:
+        # the harness asked and learned nothing, which is itself worth recording
+        backend["source"] = "unknown"
+    elif kinds == {"observed"}:
+        backend["source"] = "observed"
+    elif kinds == {"declared"}:
+        backend["source"] = "declared"
+    else:
+        backend["source"] = "mixed"
+    if probe:
+        # only meaningful once a probe has run; without one every field is
+        # declared and the summary `source` already says so.
+        backend["field_source"] = field_source
+        if probe.get("probe"):
+            backend["probe"] = probe["probe"]
     return backend
+
+
+def _backend_warnings(backend: dict) -> list[str]:
+    """Operator-facing warnings about a run's model provenance (E19)."""
+    warnings = []
+    for key in _BACKEND_FIELDS:
+        if backend.get(f"{key}_mismatch"):
+            warnings.append(
+                f"WARNING: declared {key} {backend[f'declared_{key}']!r} does not match the "
+                f"backend's own {backend[key]!r} (E19). The OBSERVED value is what has been "
+                "recorded; fix the declaration or the deployment before citing this run.")
+    if not backend.get("model"):
+        warnings.append(
+            "WARNING: this run's artifacts will not name the model that produced them (E19): "
+            "nothing was declared and the backend's actuator did not report one. Pass "
+            "--model/--reasoning-effort, set a model: block on the target in targets.yaml, or "
+            "expose /actuator/metrics/gen_ai.client.operation on the backend.")
+    return warnings
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -198,7 +294,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     runner = Runner(session_factory=session_factory, scorers=scorers, sink=sink,
                     judge=default_judge, config=run_config)
     run_name = args.run_name or f"{args.suite}-{args.target}-{time.strftime('%Y%m%d-%H%M%S')}"
-    backend = _backend_params(target, args)
+    # The GenAI meter is registered lazily, so this probe legitimately finds
+    # nothing against a freshly booted pod. Ask anyway: on a warm backend it
+    # makes the model readable in params.json from the moment the run starts,
+    # and the post-run probe below covers the cold case.
+    backend = _backend_params(target, args, _probe_backend(target, identity))
     judge_model, judge_per_metric = _judge_params(scorers, default_judge)
     params = {
         "suite": args.suite, "target": args.target, "metrics": args.metrics,
@@ -216,17 +316,50 @@ def cmd_run(args: argparse.Namespace) -> int:
         "judge_model": judge_model,
         **({"judge_per_metric": judge_per_metric} if judge_per_metric else {}),
     }
-    if not backend:
-        print("WARNING: no backend model declared, so this run's artifacts will not name "
-              "the model that produced them (E19). Pass --model/--reasoning-effort, or set "
-              "a model: block on the target in targets.yaml.\n")
+    for warning in _backend_warnings(backend):
+        print(warning + "\n")
     judge_label = default_name + (f"/{judge_model['model']}" if judge_model.get("model") else "")
     print(f"Running {len(cases)} cases [{args.suite} → {args.target}] "
           f"with {len(scorers)} scorers, judge={judge_label}, sink={args.sink}"
-          f"{', model=' + backend['model'] if backend.get('model') else ''} ...")
+          f"{', model=' + str(backend['model']) if backend.get('model') else ''} ...")
     report = runner.run(cases, run_name=run_name, params=params)
+    _refresh_backend_params(target, args, identity, params, sink, before=backend)
     _print_summary(report, run_name, args)
     return 0
+
+
+def _observed_count(backend: dict) -> int:
+    return sum(1 for kind in (backend.get("field_source") or {}).values() if kind == "observed")
+
+
+def _refresh_backend_params(target: dict, args: argparse.Namespace, identity: Identity,
+                            params: dict, sink, *, before: dict) -> None:
+    """Re-probe the backend after the run and rewrite ``params.json`` (E19).
+
+    This is the probe that actually matters. The GenAI meter does not exist until
+    the backend's first LLM call, so a cold pod reports nothing at run start and
+    reports the model by the time the run ends; the eval's own turns are what
+    registered it.
+
+    The refresh only ever replaces the block with one that knows at least as
+    much, so a transient failure on the second probe cannot erase what the first
+    one observed.
+    """
+    after = _backend_params(target, args, _probe_backend(target, identity))
+    if after == before or _observed_count(after) < _observed_count(before):
+        return
+    params["backend"] = after
+    try:
+        sink.update_params(params)
+    except Exception as exc:  # noqa: BLE001 - the run is already complete
+        print(f"NOTE: could not rewrite the run's params after the backend re-probe: {exc}\n")
+        return
+    if after.get("model") and not before.get("model"):
+        print(f"Backend model observed after the run: {after['model']} "
+              f"(provider={after.get('provider', 'unknown')}).")
+    for warning in _backend_warnings(after):
+        if warning not in _backend_warnings(before):
+            print(warning + "\n")
 
 
 def cmd_rescore(args: argparse.Namespace) -> int:

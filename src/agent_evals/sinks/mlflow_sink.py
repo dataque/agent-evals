@@ -46,6 +46,7 @@ class MlflowSink(MetricsSink):
         self._case_idx = 0
         self._tmp: str | None = None
         self._jsonl: JsonlSink | None = None
+        self._run_id: str | None = None
 
     def start_run(self, *, name: str, params: dict) -> None:
         import mlflow
@@ -53,7 +54,10 @@ class MlflowSink(MetricsSink):
         if self.tracking_uri:
             mlflow.set_tracking_uri(self.tracking_uri)
         mlflow.set_experiment(self.experiment)
-        mlflow.start_run(run_name=name)
+        run = mlflow.start_run(run_name=name)
+        # only needed to revise params after the run has ended; a backend that
+        # does not hand one back simply gets no post-run refresh.
+        self._run_id = getattr(getattr(run, "info", None), "run_id", None)
         flat = _flatten(params)
         if flat:
             mlflow.log_params({_safe_key(k): v for k, v in flat.items()})
@@ -61,6 +65,32 @@ class MlflowSink(MetricsSink):
         self._tmp = tempfile.mkdtemp(prefix="agent-evals-")
         self._jsonl = JsonlSink(out_dir=self._tmp)
         self._jsonl.start_run(name="run", params=params)
+
+    def update_params(self, params: dict) -> None:
+        """Record a post-run parameter revision (E19: the backend's model is not
+        readable until its meter exists).
+
+        An MLflow param is write-once, so re-logging ``backend.model`` with a
+        different value would be rejected. The revision therefore lands as *tags*
+        (mutable) and in the artifact bundle's ``params.json``, which is the copy
+        a reader of the run bundle actually opens. Best-effort: a provenance
+        refresh must never fail a run that has already completed.
+        """
+        import mlflow
+
+        if self._jsonl is not None:
+            self._jsonl.update_params(params)
+        if not self._run_id:
+            return
+        try:
+            client = mlflow.tracking.MlflowClient()
+            for key, value in _flatten({"backend": params.get("backend") or {}}).items():
+                client.set_tag(self._run_id, _safe_key(key), value)
+            if self._tmp is not None:
+                client.log_artifact(self._run_id, str(Path(self._tmp) / "run" / "params.json"),
+                                    artifact_path=self.artifact_path)
+        except Exception as exc:  # noqa: BLE001 - provenance is not worth a crash
+            print(f"NOTE: could not update MLflow params after the run: {exc}")
 
     def log_case_result(self, result: CaseResult, runs: list[RunRecord]) -> None:
         import mlflow

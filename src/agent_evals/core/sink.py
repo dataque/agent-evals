@@ -32,6 +32,17 @@ class MetricsSink(ABC):
     def end_run(self) -> None:
         """Close the run and flush."""
 
+    def update_params(self, params: dict) -> None:
+        """Revise the run's parameters after ``start_run``, including after
+        ``end_run``.
+
+        Some provenance is only knowable once the run has happened: the backend's
+        GenAI meter does not exist until its first LLM call, so the model that
+        produced a run can be unreadable at the moment the run starts and plain
+        by the time it ends (E19). Optional — a sink whose parameters are
+        write-once may ignore this.
+        """
+
     # Optional sugar; runner calls start_run/end_run explicitly.
     def __enter__(self) -> "MetricsSink":
         return self

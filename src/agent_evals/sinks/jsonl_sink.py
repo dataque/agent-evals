@@ -33,10 +33,21 @@ class JsonlSink(MetricsSink):
     def start_run(self, *, name: str, params: dict) -> None:
         self._run_dir = self.out_dir / name
         self._run_dir.mkdir(parents=True, exist_ok=True)
-        (self._run_dir / "params.json").write_text(json.dumps(params, indent=2, default=str))
+        self._write_params(params)
         self._cases_f = open(self._run_dir / "cases.jsonl", "w", encoding="utf-8")
         self._runs_f = open(self._run_dir / "runs.jsonl", "w", encoding="utf-8")
         self._scores_f = open(self._run_dir / "scores.jsonl", "w", encoding="utf-8")
+
+    def _write_params(self, params: dict) -> None:
+        assert self._run_dir is not None, "start_run() not called"
+        (self._run_dir / "params.json").write_text(json.dumps(params, indent=2, default=str))
+
+    def update_params(self, params: dict) -> None:
+        """Rewrite ``params.json`` in place. Still valid after ``end_run``: the
+        run directory outlives the open file handles, and the backend's model is
+        often only readable once the run's own traffic has registered the meter
+        that reports it (E19)."""
+        self._write_params(params)
 
     def log_case_result(self, result: CaseResult, runs: list[RunRecord]) -> None:
         assert self._cases_f and self._runs_f and self._scores_f, "start_run() not called"

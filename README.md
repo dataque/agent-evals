@@ -145,13 +145,36 @@ Two things the eval can't set but you should **record** for reproducibility: the
 **backend's own LLM credentials** (configured backend-side; without them the agent
 itself errors), and the **backend build/commit under test**.
 
-The eval can't read the backend's model either, so **declare it** and it goes into
-`params.json` (E19): put a `model:` block on the target in `targets.yaml` (its
-fields are `${AGENT_EVALS_*}`-backed, so they can live in `.env`), or pass
-`--model` / `--deployment` / `--reasoning-effort` / `--api-version` per run. A run
-that declares nothing still runs, but warns and writes `"backend": {}`, and its
-artifacts then can't name the model that produced them. The values are recorded
-as `source: declared`: they are your word, not the backend's.
+The backend's model goes into `params.json` (E19), **read from the backend itself
+where possible**. The harness probes the target's Spring Boot actuator, before the
+run and again after it:
+
+- `/actuator/metrics/gen_ai.client.operation`, the OpenTelemetry GenAI meter Spring
+  AI publishes, gives `model`, `response_model`, `provider` and the call count.
+- `/actuator/configprops` (falling back to `/actuator/env`) gives `reasoning_effort`,
+  `api_version` and `deployment`. These cannot come from the meter: a Micrometer
+  meter carries only the convention's low-cardinality tags, and request options are
+  not among them.
+
+The meter is registered lazily, so a backend that has not yet called an LLM reports
+nothing at run start and reports the model by the time the run ends. That is why it
+is probed twice and `params.json` is rewritten afterwards.
+
+**Declare what the probe can't reach.** Put a `model:` block on the target in
+`targets.yaml` (its fields are `${AGENT_EVALS_*}`-backed, so they can live in
+`.env`), or pass `--model` / `--deployment` / `--reasoning-effort` /
+`--api-version` per run. Declared values fill in whatever the actuator did not
+answer, so a backend with no actuator exposed behaves exactly as before.
+
+Every field carries its own provenance in `field_source` (`observed` or
+`declared`), summarised by `source` (`observed` / `declared` / `mixed` /
+`unknown`), and the `probe` block records which endpoint answered and which
+refused. **When a declaration disagrees with the running backend, the observed
+value wins**, the declaration is kept as `declared_<field>` with a
+`<field>_mismatch` flag, and the run prints a warning: a stale declaration is the
+failure E19 exists to catch, so it must stay visible in the bundle. A run that
+neither declared nor observed a model still runs, but warns and its artifacts
+can't name the model that produced them.
 
 The **judge** model needs no declaring. `judge: azure_openai` names a backend, not
 a model, so the run also records `judge_model` (backend, model/deployment,
@@ -173,9 +196,9 @@ setup path is in `docs/evaluation-setup.md`.
 **JSONL sink** (default) writes to `eval-runs/<run-name>/`: `summary.json`
 (aggregates), `scores.jsonl` (per-case scores), `runs.jsonl` (full
 `RunRecord`s), `cases.jsonl`, `params.json` (what was run: suite, target,
-metrics, judge, version, the `dataset` fingerprint, the declared `backend`
-model / deployment / reasoning effort / API version, and the observed
-`judge_model`).
+metrics, judge, version, the `dataset` fingerprint, the `backend` model /
+deployment / reasoning effort / API version with per-field provenance, and the
+observed `judge_model`).
 
 **MLflow sink** — install the extra, run with `--sink mlflow`, then launch the
 UI on the same tracking store:

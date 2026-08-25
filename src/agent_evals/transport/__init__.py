@@ -6,6 +6,12 @@ touching scorers.
 """
 
 from .a2a import A2ATransport
+from .actuator import (
+    actuator_url,
+    probe_backend,
+    probe_backend_model,
+    probe_backend_options,
+)
 from .agui import AgUiSseTransport
 from .auth import (
     CallableTokenProvider,
@@ -25,6 +31,10 @@ from .projection import runrecord_to_trace, to_mlflow_row
 
 __all__ = [
     "AgUiSseTransport",
+    "probe_backend",
+    "probe_backend_model",
+    "probe_backend_options",
+    "actuator_url",
     "A2ATransport",
     "Transport",
     "TurnRequest",
