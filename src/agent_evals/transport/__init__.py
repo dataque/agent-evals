@@ -7,6 +7,7 @@ touching scorers.
 
 from .a2a import A2ATransport
 from .actuator import (
+    OBSERVED_ONLY_DETAIL,
     actuator_url,
     probe_backend,
     probe_backend_model,
@@ -31,6 +32,7 @@ from .projection import runrecord_to_trace, to_mlflow_row
 
 __all__ = [
     "AgUiSseTransport",
+    "OBSERVED_ONLY_DETAIL",
     "probe_backend",
     "probe_backend_model",
     "probe_backend_options",

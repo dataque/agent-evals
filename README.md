@@ -151,10 +151,33 @@ run and again after it:
 
 - `/actuator/metrics/gen_ai.client.operation`, the OpenTelemetry GenAI meter Spring
   AI publishes, gives `model`, `response_model`, `provider` and the call count.
-- `/actuator/configprops` (falling back to `/actuator/env`) gives `reasoning_effort`,
-  `api_version` and `deployment`. These cannot come from the meter: a Micrometer
-  meter carries only the convention's low-cardinality tags, and request options are
-  not among them.
+- `/actuator/configprops` and `/actuator/env` give `reasoning_effort`, `api_version`
+  and `deployment` alongside the meter's fields, plus an `options` block of
+  everything else the chat model was configured with. None of it can come from the
+  meter: a Micrometer meter carries only the convention's low-cardinality tags, and
+  request options are not among them.
+
+**Both** config endpoints are read, not the first that answers, because they answer
+different questions. configprops reports each value *after* binding, which is what
+the model actually uses, and wins any field the two share. `env` reports the
+property sources in precedence order, and is the only one that can say which
+**profile** the pod merged (`profiles`) and **which source won** a given setting
+(`property_sources`). A value that came from a ConfigMap rather than the checked-in
+`application.yaml` is exactly the kind of drift an eval meant to be
+environment-independent needs to see, and configprops structurally cannot show it.
+
+What lands in `options` goes well past model identity, because identity alone does
+not make two runs comparable: `temperature`, `top_p` and `seed` decide whether they
+are the same experiment at all; `max_completion_tokens` explains a truncated answer
+that a scorer would otherwise read as a quality failure; `timeout` and `max_retries`
+shape the *measurement* rather than the answer, since a retried call inflates a
+latency percentile; and `parallel_tool_calls` moves trajectories, and so every
+trajectory-based scorer. Field names match `backend_config`'s deliberately, so what
+the process is running can be diffed against what the build declared.
+
+Only the chat model is read. A service that also configures embeddings binds a
+second `model`, and recording `text-embedding-3-large` as the model that answered
+the user would be simply wrong.
 
 The meter is registered lazily, so a backend that has not yet called an LLM reports
 nothing at run start and reports the model by the time the run ends. That is why it
@@ -169,7 +192,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,configprops    # `env` also works as a fallback
+        include: health,info,metrics,configprops,env
   endpoint:
     configprops:
       show-values: ALWAYS      # Spring Boot 3 defaults to NEVER, which redacts
@@ -177,11 +200,18 @@ management:
       show-values: ALWAYS
 ```
 
-`show-values` is the part that is easy to miss: without it the endpoint returns 200
-and every value reads `******`, which the harness drops rather than record as a
-model name. Note that `ALWAYS` also unredacts API keys to anyone who can reach the
-endpoint, so on a shared deployment prefer exposing `configprops` only, or skip
-this and declare the values instead.
+`show-values` is the part that is easy to miss: exposure only makes an endpoint
+reachable, and without `show-values` it returns 200 with every value reading
+`******`, which the harness drops rather than record as a model name. There is no
+wildcard form; each endpoint needs its own key. `WHEN_AUTHORIZED` behaves exactly
+like `NEVER` unless Spring Security actually authenticates the probe's token.
+
+Note that `ALWAYS` also unredacts API keys to anyone who can reach the endpoint.
+On a shared deployment prefer exposing `configprops` only: the harness records
+that `env` was unreachable and carries on, since one exposed endpoint is a
+complete result rather than a half-failure. You then lose `profiles` and
+`property_sources`, which only `env` can answer. Skipping both and declaring the
+values instead remains a supported option.
 
 **`backend_config`: what the backend's own `application.yaml` declares.** A
 separate `params.json` section, read straight off disk, needing no `.env` entry

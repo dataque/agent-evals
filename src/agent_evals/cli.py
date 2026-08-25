@@ -33,6 +33,7 @@ from .transport import (
     StaticTokenProvider,
     probe_backend,
 )
+from .transport.actuator import OBSERVED_ONLY_DETAIL
 
 
 def _default_config_path() -> Path:
@@ -218,9 +219,19 @@ def _backend_params(target: dict, args: argparse.Namespace, probe: dict | None =
             backend[key] = said
             field_source[key] = "declared"
 
+    # Observed-only detail: the wider chat-option set, the active profiles and
+    # the property source that won each field. No operator can declare these, so
+    # they are carried across whole rather than compared against a declaration.
+    for key in OBSERVED_ONLY_DETAIL:
+        value = observed.get(key)
+        if value:
+            backend[key] = value
+
     if not backend and not probe:
         return {}
     kinds = set(field_source.values())
+    if any(backend.get(key) for key in OBSERVED_ONLY_DETAIL):
+        kinds.add("observed")
     if not kinds:
         # the harness asked and learned nothing, which is itself worth recording
         backend["source"] = "unknown"
