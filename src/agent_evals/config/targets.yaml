@@ -35,6 +35,14 @@ targets:
       deployment: "${AGENT_EVALS_LOCAL_DEPLOYMENT:-}"             # backend's deployment/endpoint name
       reasoning_effort: "${AGENT_EVALS_LOCAL_REASONING_EFFORT:-}"  # e.g. low | medium | high
       api_version: "${AGENT_EVALS_LOCAL_API_VERSION:-}"           # e.g. 2024-10-21
+    # The backend's OWN application.yaml, recorded verbatim into params.json as
+    # the separate `backend_config` section (E19). A file path, a directory
+    # holding one, or a Spring Boot jar (read from BOOT-INF/classes); comma-
+    # separate base + profile to layer them as Spring does. This covers the
+    # settings no Micrometer meter can carry, reasoning effort above all, and a
+    # disagreement with the OBSERVED block means the pod is not running its own
+    # source. Reachable because the `local` backend shares this pod.
+    backend_config: "${AGENT_EVALS_LOCAL_BACKEND_CONFIG:-}"
 
   # Cloud / devpod: eval runs remotely and reaches the backend over the forwarded
   # HTTPS URL. Same no-SSO token (NO interactive Microsoft login).
@@ -56,6 +64,7 @@ targets:
       deployment: "${AGENT_EVALS_DEVPOD_DEPLOYMENT:-}"
       reasoning_effort: "${AGENT_EVALS_DEVPOD_REASONING_EFFORT:-}"
       api_version: "${AGENT_EVALS_DEVPOD_API_VERSION:-}"
+    backend_config: "${AGENT_EVALS_DEVPOD_BACKEND_CONFIG:-}"   # see `local`
     # TLS for corporate / private-CA endpoints. Pick ONE:
     tls:
       use_truststore: true    # use the OS trust store / Keychain — recommended; needs `pip install truststore`
