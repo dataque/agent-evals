@@ -17,7 +17,6 @@ import yaml
 import agent_evals
 
 from .core.runner import Runner
-from .backend_config import config_disagreements, describe_backend_config
 from .datasets import load_suite, suite_fingerprint
 from .datasets.facts import derive_hr_facts
 from .envfile import expand_env, load_dotenv
@@ -163,18 +162,6 @@ def _probe_backend(target: dict, identity: Identity, *, timeout_s: float = 5.0) 
     return probe_backend(base_url, token=token, verify=_tls_verify(target), timeout_s=timeout_s)
 
 
-def _backend_config_params(target: dict, args: argparse.Namespace) -> dict:
-    """The ``backend_config`` section: what the backend's own config file says.
-
-    Kept deliberately OUT of the ``backend`` block. That block answers "what ran";
-    this one answers "what the source says should have run", and the whole value
-    of recording it is that the two can differ.
-    """
-    raw = args.backend_config or target.get("backend_config") or ""
-    paths = [p.strip() for p in str(raw).split(",") if p.strip()]
-    return describe_backend_config(paths)
-
-
 def _backend_params(target: dict, args: argparse.Namespace, probe: dict | None = None) -> dict:
     """What the system under test was running, for ``params.json`` (E19).
 
@@ -312,7 +299,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     # makes the model readable in params.json from the moment the run starts,
     # and the post-run probe below covers the cold case.
     backend = _backend_params(target, args, _probe_backend(target, identity))
-    backend_config = _backend_config_params(target, args)
     judge_model, judge_per_metric = _judge_params(scorers, default_judge)
     params = {
         "suite": args.suite, "target": args.target, "metrics": args.metrics,
@@ -329,16 +315,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         # runs that were scored by the same judge model (E19).
         "judge_model": judge_model,
         **({"judge_per_metric": judge_per_metric} if judge_per_metric else {}),
-        # What the backend's OWN application.yaml declares, kept separate from
-        # `backend` because a disagreement between them is the finding (E19).
-        **({"backend_config": backend_config} if backend_config else {}),
     }
     for warning in _backend_warnings(backend):
         print(warning + "\n")
-    for line in config_disagreements(backend_config, backend):
-        print(f"WARNING: the backend is not running what its configuration file says ({line}). "
-              "The deployment overrides that file, so every OTHER value read from it is "
-              "suspect too, including the ones no meter can verify (E19).\n")
     judge_label = default_name + (f"/{judge_model['model']}" if judge_model.get("model") else "")
     print(f"Running {len(cases)} cases [{args.suite} → {args.target}] "
           f"with {len(scorers)} scorers, judge={judge_label}, sink={args.sink}"
@@ -474,9 +453,6 @@ def cmd_rescore(args: argparse.Namespace) -> int:
         # the backend that produced them is the source run's, never this one's
         # (E19). Empty when the source predates backend recording.
         "backend": src_params.get("backend") or {},
-        # Same reasoning for the config that produced them (E19).
-        **({"backend_config": src_params["backend_config"]}
-           if src_params.get("backend_config") else {}),
         # The JUDGE, by contrast, runs live here, so this describes THIS
         # invocation. The source run's judge is one field of the comparison a
         # rescore exists to make, and is kept beside it.
@@ -594,10 +570,6 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--reasoning-effort", default=None,
                    help="backend's reasoning-effort setting, e.g. low|medium|high")
     r.add_argument("--api-version", default=None, help="backend's LLM API version")
-    r.add_argument("--backend-config", default=None,
-                   help="path(s) to the backend's application.yaml, a directory holding one, "
-                        "or a Spring Boot jar; comma-separated for base+profile. Recorded as "
-                        "the params.json `backend_config` section (E19).")
     r.add_argument("--limit", type=int, default=None, help="only run the first N cases")
     r.set_defaults(func=cmd_run)
 

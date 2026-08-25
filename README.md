@@ -189,32 +189,6 @@ this and declare the values instead.
 `--api-version` per run. Declared values fill in whatever the actuator did not
 answer, so a backend with no actuator exposed behaves exactly as before.
 
-**When the config endpoints aren't exposed**, point the run at the backend's own
-`application.yaml` instead, with `backend_config:` on the target (or
-`--backend-config`). It accepts a file, a directory holding one, or a Spring Boot
-jar, comma-separated to layer a profile over the base as Spring does. This is the
-only way to record reasoning effort on a deployment that serves only
-`health,metrics`, and it lands in its own top-level `backend_config` section:
-
-```json
-"backend_config": {
-  "source": "configured_in_source",
-  "files": [{"path": ".../application.yaml", "digest": "sha256:8f1a8a99639f7cd0", "bytes": 8013}],
-  "llm": {"model": "gpt-5.2", "reasoning_effort": "none", "timeout": "150s"},
-  "actuator": {"exposure_include": "health,metrics", "metrics_enable": {"gen_ai": true}}
-}
-```
-
-It is deliberately **not** merged into `backend`, because the two can disagree and
-that disagreement is the point: a config file describes the build it came from,
-while the process may have been started from a different build or had any property
-overridden by an environment variable at boot. When they differ the run prints a
-warning, since it means every other value read from that file is suspect too,
-including the ones no meter can verify. Recording `actuator.exposure_include`
-beside it means a `probe` block full of 404s is explained in the same artifact.
-Credentials and endpoints are redacted by key name, so the section is safe to
-paste.
-
 Every field carries its own provenance in `field_source` (`observed` or
 `declared`), summarised by `source` (`observed` / `declared` / `mixed` /
 `unknown`), and the `probe` block records which endpoint answered and which

@@ -55,7 +55,7 @@ _TAG_FIELDS = {
 # `reasoning-effort` of a YAML property source and the `REASONING_EFFORT` of an
 # environment override all land on the same field. Order matters: the longer
 # `deploymentname` must be tried before `deployment`.
-OPTION_FIELDS = {
+_OPTION_FIELDS = {
     "reasoningeffort": "reasoning_effort",
     "apiversion": "api_version",
     "serviceversion": "api_version",
@@ -86,7 +86,7 @@ def actuator_url(base_url: str, metric: str = METRIC) -> str:
     return f"{_actuator_base(base_url)}/metrics/{metric}"
 
 
-def normalise_key(key: object) -> str:
+def _normalise(key: object) -> str:
     return "".join(ch for ch in str(key).lower() if ch.isalnum())
 
 
@@ -120,14 +120,14 @@ def parse_gen_ai_metric(payload: dict) -> dict:
     return out
 
 
-def collect_option_fields(node: object, out: dict) -> None:
+def _collect_options(node: object, out: dict) -> None:
     """Depth-first sweep of a bound properties tree for chat-option leaves."""
     if isinstance(node, dict):
         for key, value in node.items():
             if isinstance(value, (dict, list)):
-                collect_option_fields(value, out)
+                _collect_options(value, out)
                 continue
-            field = OPTION_FIELDS.get(normalise_key(key))
+            field = _OPTION_FIELDS.get(_normalise(key))
             if not field or field in out:
                 continue
             text = str(value).strip() if value is not None else ""
@@ -135,7 +135,7 @@ def collect_option_fields(node: object, out: dict) -> None:
                 out[field] = text
     elif isinstance(node, list):
         for item in node:
-            collect_option_fields(item, out)
+            _collect_options(item, out)
 
 
 def parse_configprops(payload: dict) -> dict:
@@ -147,9 +147,9 @@ def parse_configprops(payload: dict) -> dict:
     out: dict = {}
     for context in ((payload or {}).get("contexts") or {}).values():
         for bean in ((context or {}).get("beans") or {}).values():
-            if not normalise_key((bean or {}).get("prefix") or "").startswith("springai"):
+            if not _normalise((bean or {}).get("prefix") or "").startswith("springai"):
                 continue
-            collect_option_fields((bean or {}).get("properties") or {}, out)
+            _collect_options((bean or {}).get("properties") or {}, out)
     return out
 
 
@@ -162,10 +162,10 @@ def parse_env(payload: dict) -> dict:
     out: dict = {}
     for source in (payload or {}).get("propertySources") or []:
         for key, entry in ((source or {}).get("properties") or {}).items():
-            norm = normalise_key(key)
+            norm = _normalise(key)
             if "springai" not in norm:
                 continue
-            for suffix, field in OPTION_FIELDS.items():
+            for suffix, field in _OPTION_FIELDS.items():
                 if not norm.endswith(suffix):
                     continue
                 if field not in out:
