@@ -35,6 +35,17 @@ targets:
       deployment: "${AGENT_EVALS_LOCAL_DEPLOYMENT:-}"             # backend's deployment/endpoint name
       reasoning_effort: "${AGENT_EVALS_LOCAL_REASONING_EFFORT:-}"  # e.g. low | medium | high
       api_version: "${AGENT_EVALS_LOCAL_API_VERSION:-}"           # e.g. 2024-10-21
+    # The backend's OWN application.yaml, read straight off disk into the
+    # separate `backend_config` params block. Needs NO .env entry and no env var:
+    # when the eval runs beside the backend, the file is found by sweeping the
+    # working directory and its parent for a Spring config that configures a chat
+    # model. This is the only way to record reasoning effort when the backend
+    # exposes no /actuator/configprops. Everything below is optional and only
+    # narrows the search.
+    model_config:
+      # path: "../backend/api-service/bff-service/src/main/resources/application.yaml"
+      # profiles: ["local"]   # also merge application-<profile>.yaml, in Spring's order
+      # enabled: false        # skip the file read entirely
 
   # Cloud / devpod: eval runs remotely and reaches the backend over the forwarded
   # HTTPS URL. Same no-SSO token (NO interactive Microsoft login).

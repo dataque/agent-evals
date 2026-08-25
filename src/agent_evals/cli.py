@@ -17,6 +17,7 @@ import yaml
 import agent_evals
 
 from .core.runner import Runner
+from .appconfig import read_backend_config
 from .datasets import load_suite, suite_fingerprint
 from .datasets.facts import derive_hr_facts
 from .envfile import expand_env, load_dotenv
@@ -238,6 +239,21 @@ def _backend_params(target: dict, args: argparse.Namespace, probe: dict | None =
     return backend
 
 
+def _backend_config_params(target: dict) -> dict:
+    """The backend's own ``application.yaml``, as its own ``params.json`` section.
+
+    Reads no environment variable and requires no ``.env`` entry: with nothing
+    configured the file is discovered next to the eval's working directory, which
+    is where it sits when the eval runs beside the backend. The optional
+    ``model_config`` block on the target only narrows that search, and
+    ``enabled: false`` turns the whole thing off.
+    """
+    cfg = target.get("model_config") or {}
+    if cfg.get("enabled") is False:
+        return {}
+    return read_backend_config(path=cfg.get("path"), profiles=cfg.get("profiles"))
+
+
 def _backend_warnings(backend: dict) -> list[str]:
     """Operator-facing warnings about a run's model provenance (E19)."""
     warnings = []
@@ -311,6 +327,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         # to think. Without it two runs an hour apart are indistinguishable in
         # their artifacts and no model A/B is citable (E19).
         "backend": backend,
+        # What the backend's own application.yaml DECLARES, kept as its own
+        # section rather than merged into `backend` above: that one records what
+        # the running process did, this one records what the build was
+        # configured to do, and the two disagreeing is the finding (E19).
+        "backend_config": _backend_config_params(target),
         # And which LLM did the judging: a judged score is only comparable across
         # runs that were scored by the same judge model (E19).
         "judge_model": judge_model,

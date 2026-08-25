@@ -183,7 +183,33 @@ model name. Note that `ALWAYS` also unredacts API keys to anyone who can reach t
 endpoint, so on a shared deployment prefer exposing `configprops` only, or skip
 this and declare the values instead.
 
-**Declare what the probe can't reach.** Put a `model:` block on the target in
+**`backend_config`: what the backend's own `application.yaml` declares.** A
+separate `params.json` section, read straight off disk, needing no `.env` entry
+and no environment variable. When the eval runs beside the backend the file is
+found by sweeping the working directory and its parent for a Spring config that
+configures a chat model, so a service monorepo's other `application.yaml` files,
+and the eval's own config, cannot be mistaken for it. It records `model`,
+`reasoning_effort`, `deployment`, `temperature`, `timeout` and friends, plus the
+`spring.ai` subtree they came from, which service (`application_name`) and which
+files were read.
+
+This is the only source that can answer **reasoning effort** on a deployment
+whose actuator exposes just `health` and `metrics`: a Micrometer meter cannot
+carry a request option, and `configprops`/`env` are frequently off.
+
+It is deliberately **not** merged into `backend`. That block records what the
+running process did; this one records what the build was configured to do, and
+the two disagreeing is the finding rather than a conflict to resolve. Only the
+*chat* model is read: a service that also configures embeddings has a second
+`model` key, and recording `text-embedding-3-large` as the model that answered
+the user would be simply wrong. Secrets are never recorded: a value under a key
+like `api-key` becomes `<redacted>`, while a `${VAR}` placeholder is kept
+verbatim because it names where the secret comes from without disclosing it, and
+the backend's placeholders are never resolved against the eval's own
+environment. Narrow or disable the search with an optional `model_config:` block
+on the target (`path`, `profiles`, `enabled: false`).
+
+**Declare what neither can reach.** Put a `model:` block on the target in
 `targets.yaml` (its fields are `${AGENT_EVALS_*}`-backed, so they can live in
 `.env`), or pass `--model` / `--deployment` / `--reasoning-effort` /
 `--api-version` per run. Declared values fill in whatever the actuator did not
