@@ -28,11 +28,19 @@ never saw.
 
 from __future__ import annotations
 
+import hashlib
 import re
+import zipfile
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+# Where a Spring Boot fat jar keeps the config it was built with. Reading the JAR
+# is closer to the truth than reading a source tree: the jar is what the pod
+# actually started, while the checkout beside it may have moved on since.
+_JAR_CLASSES = "BOOT-INF/classes/"
+_BASE_NAMES = ("application.yaml", "application.yml")
 
 # Spring property names (normalised: lower-cased, punctuation stripped) worth
 # lifting to the top of the section. `reasoning-effort`, `reasoningEffort` and
@@ -77,16 +85,55 @@ _GLOBS = (
     "*/*/*/src/main/resources/application.yml",
 )
 
+# Built artefacts, swept BEFORE the source tree. A jar is what the pod actually
+# started; the checkout beside it may have been synced or edited since, and this
+# whole section exists because a deployment can stop matching its own source.
+_JAR_GLOBS = (
+    "*.jar",
+    "*/*.jar",
+    "*/target/*.jar",
+    "*/*/target/*.jar",
+    "*/*/*/target/*.jar",
+)
+
 
 def _normalise(key: object) -> str:
     return "".join(ch for ch in str(key).lower() if ch.isalnum())
 
 
-def _load_docs(path: Path) -> list[dict]:
-    """Every YAML document in the file. Spring allows several per file, each
-    optionally gated on a profile."""
-    with path.open(encoding="utf-8") as fh:
-        return [doc for doc in yaml.safe_load_all(fh) if isinstance(doc, dict)]
+def _load_docs(raw: bytes) -> list[dict]:
+    """Every YAML document in one config file. Spring allows several per file,
+    each optionally gated on a profile."""
+    text = raw.decode("utf-8", errors="replace")
+    return [doc for doc in yaml.safe_load_all(text) if isinstance(doc, dict)]
+
+
+def _digest(raw: bytes) -> str:
+    return "sha256:" + hashlib.sha256(raw).hexdigest()[:16]
+
+
+def _is_jar(path: Path) -> bool:
+    return path.suffix.lower() == ".jar"
+
+
+def _jar_config_names(path: Path) -> list[str]:
+    """Config members of a Spring Boot fat jar, base file first."""
+    try:
+        with zipfile.ZipFile(path) as jar:
+            names = jar.namelist()
+    except Exception:  # noqa: BLE001 - not a readable jar is simply not a candidate
+        return []
+    prefix = _JAR_CLASSES
+    return sorted(n for n in names
+                  if n.startswith(prefix)
+                  and re.fullmatch(r"application(-[^/]+)?\.ya?ml", n[len(prefix):] or ""))
+
+
+def _read_member(path: Path, member: str | None) -> bytes:
+    if member is None:
+        return path.read_bytes()
+    with zipfile.ZipFile(path) as jar:
+        return jar.read(member)
 
 
 def _doc_profile(doc: dict) -> str | None:
@@ -165,21 +212,32 @@ def find_application_yaml(search_from: Path, explicit: str | list[str] | None = 
         return [Path(p).expanduser() for p in paths]
 
     seen: list[Path] = []
-    for root in (search_from, search_from.parent):
-        for pattern in _GLOBS:
-            try:
-                matches = sorted(root.glob(pattern))
-            except OSError:
-                continue
-            for match in matches:
-                if match.is_file() and match not in seen:
-                    seen.append(match)
+    for patterns in (_JAR_GLOBS, _GLOBS):  # a built jar outranks the source tree
+        for root in (search_from, search_from.parent):
+            for pattern in patterns:
+                try:
+                    matches = sorted(root.glob(pattern))
+                except OSError:
+                    continue
+                for match in matches:
+                    if match.is_file() and match not in seen:
+                        seen.append(match)
     # only the ones that configure a model, so a monorepo's other services and
     # the eval's own config cannot be mistaken for the backend's
     return [p for p in seen if _mentions_spring_ai(p)]
 
 
 def _mentions_spring_ai(path: Path) -> bool:
+    if _is_jar(path):
+        names = _jar_config_names(path)
+        primary = next((n for n in names if n[len(_JAR_CLASSES):] in _BASE_NAMES), None)
+        if primary is None:
+            return False
+        try:
+            text = _read_member(path, primary).decode("utf-8", errors="ignore")
+        except Exception:  # noqa: BLE001
+            return False
+        return "spring" in text and "ai" in text and "model" in text
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
@@ -226,7 +284,11 @@ def read_backend_config(*, path: str | list[str] | None = None,
             if _disagrees(_identity(fields), _identity(chosen)):
                 conflicting.append({"path": str(candidate), **_identity(fields)})
             continue
-        chosen = {**fields, "spring_ai": redacted, "path": str(candidate), "files": files}
+        chosen = {**fields, "spring_ai": redacted, "path": str(candidate),
+                  # A jar is the artefact the pod started; a source tree is what
+                  # someone hopes it started. Worth stating which one answered.
+                  "kind": "jar" if _is_jar(candidate) else "source",
+                  "files": files}
         name = ((merged.get("spring") or {}).get("application") or {}).get("name")
         if name:
             # WHICH service was read. A monorepo has many, and only one is the
@@ -264,36 +326,78 @@ def _disagrees(a: dict, b: dict) -> bool:
     return any(a[key] != b[key] for key in set(a) & set(b))
 
 
-def _read_one(base: Path, profiles: list[str]) -> tuple[dict, list[str], list[str]]:
-    """Merge the base file, its profile-gated documents, and any requested
-    ``application-<profile>.yaml`` siblings, in Spring's precedence order."""
-    merged: dict = {}
-    files = [base.name]
-    applied: list[str] = []
-    for doc in _load_docs(base):
-        gate = _doc_profile(doc)
-        if gate and gate not in profiles:
-            continue
-        if gate:
-            applied.append(gate)
-        merged = _deep_merge(merged, doc)
+def _overlay_sources(base: Path, profiles: list[str]) -> list[tuple[str, Path, str | None]]:
+    """``(display name, file to read, jar member)`` for each requested profile
+    overlay, in the order Spring would layer them.
+
+    A plain overlay lives in its own file beside the base, so it carries its own
+    path; a jar overlay is another member of the same archive.
+    """
+    out: list[tuple[str, Path, str | None]] = []
+    if _is_jar(base):
+        available = {name[len(_JAR_CLASSES):]: name for name in _jar_config_names(base)}
+        for profile in profiles:
+            for suffix in ("yaml", "yml"):
+                name = f"application-{profile}.{suffix}"
+                if name in available:
+                    out.append((name, base, available[name]))
+                    break
+        return out
     for profile in profiles:
         sibling = base.with_name(f"{base.stem}-{profile}{base.suffix}")
-        if not sibling.is_file():
-            continue
-        files.append(sibling.name)
-        applied.append(profile)
-        for doc in _load_docs(sibling):
+        if sibling.is_file():
+            out.append((sibling.name, sibling, None))
+    return out
+
+
+def _read_one(base: Path, profiles: list[str]) -> tuple[dict, list[dict], list[str]]:
+    """Merge the base config, its profile-gated documents, and any requested
+    profile overlays, in Spring's precedence order.
+
+    Works the same for a source tree and for a Spring Boot fat jar; only where
+    the bytes come from differs. Each file read is recorded with a digest, so two
+    runs can be shown to have been produced by the same configuration without
+    trusting the values to have been copied correctly.
+    """
+    merged: dict = {}
+    files: list[dict] = []
+    applied: list[str] = []
+
+    if _is_jar(base):
+        names = _jar_config_names(base)
+        primary = next((n for n in names
+                        if n[len(_JAR_CLASSES):] in _BASE_NAMES), None)
+        if primary is None:
+            raise FileNotFoundError(f"no {_JAR_CLASSES}application.yaml in {base}")
+        sources: list[tuple[str, Path, str | None]] = [
+            (primary[len(_JAR_CLASSES):], base, primary)]
+    else:
+        sources = [(base.name, base, None)]
+    sources += _overlay_sources(base, profiles)
+
+    for index, (name, source_path, member) in enumerate(sources):
+        raw = _read_member(source_path, member)
+        files.append({"name": name, "digest": _digest(raw), "bytes": len(raw)})
+        if index:  # an overlay is applied wholesale; only the base is gated
+            applied.append(name.rsplit(".", 1)[0].split("-", 1)[-1])
+        for doc in _load_docs(raw):
+            gate = _doc_profile(doc)
+            if gate and gate not in profiles:
+                continue
+            if gate:
+                applied.append(gate)
             merged = _deep_merge(merged, doc)
     return merged, files, sorted(set(applied))
 
 
 def _profile_files(base: Path) -> list[str]:
-    """Profile overlays sitting next to the base file but NOT applied, so the
+    """Profile overlays sitting beside the base config but NOT applied, so the
     operator can see what else exists without the harness guessing which is
     active."""
+    if _is_jar(base):
+        return [n[len(_JAR_CLASSES):] for n in _jar_config_names(base)
+                if n[len(_JAR_CLASSES):] not in _BASE_NAMES]
     try:
-        found = sorted(p.name for p in base.parent.glob(f"{base.stem}-*{base.suffix}"))
+        return sorted(p.name for p in base.parent.glob(f"{base.stem}-*{base.suffix}"))
     except OSError:
         return []
-    return found

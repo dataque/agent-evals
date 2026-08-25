@@ -80,7 +80,12 @@ def test_model_settings_are_read_from_the_backend_yaml(tmp_path):
     assert section["timeout"] == "150s"
     assert section["max_retries"] == 2
     assert section["source"] == "application.yaml"
-    assert section["files"] == ["application.yaml"]
+    assert section["kind"] == "source"
+    assert [f["name"] for f in section["files"]] == ["application.yaml"]
+    # a digest per file, so two runs can be shown to share a configuration
+    # without trusting the values to have been copied correctly
+    assert section["files"][0]["digest"].startswith("sha256:")
+    assert section["files"][0]["bytes"] > 0
 
 
 def test_the_service_that_configures_no_llm_is_not_mistaken_for_the_backend(tmp_path):
@@ -150,7 +155,10 @@ def test_profile_overlays_are_applied_only_when_asked(tmp_path):
 
     overlaid = read_backend_config(search_from=cwd, profiles=["local"])
     assert overlaid["base_url"] == "https://host.example/"
-    assert overlaid["files"] == ["application.yaml", "application-local.yaml"]
+    assert [f["name"] for f in overlaid["files"]] == ["application.yaml",
+                                                      "application-local.yaml"]
+    # distinct digests: the overlay must be READ, not the base read twice
+    assert overlaid["files"][0]["digest"] != overlaid["files"][1]["digest"]
     assert overlaid["profiles_applied"] == ["local"]
 
 
@@ -284,3 +292,83 @@ def test_differing_completeness_is_not_reported_as_a_conflict(tmp_path):
     _service(cwd.parent, "b-backend", BFF.replace(
         "model: gpt-5.2", "model: gpt-5.2\n            deployment-name: hr-chat-eu"))
     assert "conflicting_candidates" not in read_backend_config(search_from=cwd)
+
+
+# --- Spring Boot fat jars ----------------------------------------------------
+
+def _fat_jar(path: Path, members: dict[str, str]) -> Path:
+    """A jar shaped like Spring Boot's, config under BOOT-INF/classes/."""
+    import zipfile
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as jar:
+        jar.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n")
+        jar.writestr("BOOT-INF/classes/com/example/App.class", "not really a class")
+        for name, body in members.items():
+            jar.writestr(f"BOOT-INF/classes/{name}", body)
+    return path
+
+
+def test_config_is_read_from_a_spring_boot_jar(tmp_path):
+    cwd = _workspace(tmp_path)
+    _fat_jar(cwd.parent / "backend" / "target" / "bff-service.jar", {"application.yaml": BFF})
+
+    section = read_backend_config(search_from=cwd)
+    assert section["model"] == "gpt-5.2"
+    assert section["reasoning_effort"] == "none"
+    assert section["kind"] == "jar"
+    assert section["path"].endswith("bff-service.jar")
+    assert section["files"][0]["digest"].startswith("sha256:")
+
+
+def test_the_deployed_jar_outranks_the_source_tree(tmp_path):
+    """The jar is what the pod started; the checkout may have moved on since.
+
+    This section exists because a deployment can stop matching its own source, so
+    when both are present the artefact is the better answer.
+    """
+    cwd = _workspace(tmp_path)
+    _service(cwd.parent, "backend", BFF)
+    _fat_jar(cwd.parent / "backend" / "target" / "bff-service.jar",
+             {"application.yaml": BFF.replace("gpt-5.2", "gpt-5.5")})
+
+    section = read_backend_config(search_from=cwd)
+    assert section["model"] == "gpt-5.5"
+    assert section["kind"] == "jar"
+
+
+def test_jar_profile_overlays_layer_like_files_do(tmp_path):
+    cwd = _workspace(tmp_path)
+    _fat_jar(cwd.parent / "backend" / "target" / "bff-service.jar", {
+        "application.yaml": BFF,
+        "application-local.yaml": "spring:\n  ai:\n    openai:\n      base-url: https://host.example/\n",
+    })
+
+    plain = read_backend_config(search_from=cwd)
+    assert "base_url" not in plain
+    assert plain["profile_files_available"] == ["application-local.yaml"]
+
+    overlaid = read_backend_config(search_from=cwd, profiles=["local"])
+    assert overlaid["base_url"] == "https://host.example/"
+    assert [f["name"] for f in overlaid["files"]] == ["application.yaml",
+                                                      "application-local.yaml"]
+
+
+def test_a_jar_with_no_spring_config_is_not_a_candidate(tmp_path):
+    # a workspace is full of jars; only a Spring Boot one that configures a chat
+    # model is the backend
+    cwd = _workspace(tmp_path)
+    _fat_jar(cwd.parent / "lib" / "some-library.jar", {})
+    _service(cwd.parent, "backend", BFF)
+
+    section = read_backend_config(search_from=cwd)
+    assert section["kind"] == "source"
+    assert section["model"] == "gpt-5.2"
+
+
+def test_a_corrupt_jar_never_fails_a_run(tmp_path):
+    cwd = _workspace(tmp_path)
+    (cwd.parent / "backend").mkdir(parents=True)
+    (cwd.parent / "backend" / "broken.jar").write_bytes(b"not a zip at all")
+    _service(cwd.parent, "backend2", BFF)
+
+    assert read_backend_config(search_from=cwd)["model"] == "gpt-5.2"

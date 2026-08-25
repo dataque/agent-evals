@@ -191,7 +191,14 @@ configures a chat model, so a service monorepo's other `application.yaml` files,
 and the eval's own config, cannot be mistaken for it. It records `model`,
 `reasoning_effort`, `deployment`, `temperature`, `timeout` and friends, plus the
 `spring.ai` subtree they came from, which service (`application_name`) and which
-files were read.
+files were read, each with a **sha256 digest**, so two runs can be shown to share
+a configuration without trusting the values to have been copied correctly.
+
+A **Spring Boot fat jar** is read the same way (`BOOT-INF/classes/`), and a built
+jar **outranks** a source tree when both are found, with `kind` saying which
+answered. The jar is the artefact the pod actually started; the checkout beside
+it may have been synced or edited since, and this section exists precisely
+because a deployment can stop matching its own source.
 
 This is the only source that can answer **reasoning effort** on a deployment
 whose actuator exposes just `health` and `metrics`: a Micrometer meter cannot
