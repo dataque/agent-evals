@@ -160,6 +160,29 @@ The meter is registered lazily, so a backend that has not yet called an LLM repo
 nothing at run start and reports the model by the time the run ends. That is why it
 is probed twice and `params.json` is rewritten afterwards.
 
+**What the backend must expose.** Spring Boot serves only `health` over HTTP by
+default, and a 404 on any of these shows up as an `error` in the run's `probe`
+block. To get the full block:
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,configprops    # `env` also works as a fallback
+  endpoint:
+    configprops:
+      show-values: ALWAYS      # Spring Boot 3 defaults to NEVER, which redacts
+    env:                       # EVERY value to `******`, not just the secrets
+      show-values: ALWAYS
+```
+
+`show-values` is the part that is easy to miss: without it the endpoint returns 200
+and every value reads `******`, which the harness drops rather than record as a
+model name. Note that `ALWAYS` also unredacts API keys to anyone who can reach the
+endpoint, so on a shared deployment prefer exposing `configprops` only, or skip
+this and declare the values instead.
+
 **Declare what the probe can't reach.** Put a `model:` block on the target in
 `targets.yaml` (its fields are `${AGENT_EVALS_*}`-backed, so they can live in
 `.env`), or pass `--model` / `--deployment` / `--reasoning-effort` /

@@ -187,8 +187,15 @@ def _get_json(
     verify: bool | str,
     timeout_s: float,
     http_transport: "httpx.BaseTransport | None",
+    not_found: str = "HTTP 404 (endpoint not exposed)",
 ) -> tuple[dict | None, str | None]:
-    """GET one JSON actuator endpoint as ``(payload, error)``. Never raises."""
+    """GET one JSON actuator endpoint as ``(payload, error)``. Never raises.
+
+    ``not_found`` spells out what a 404 means for THIS endpoint. Only the meter
+    is registered lazily; a config endpoint that 404s is simply not exposed, and
+    saying otherwise sends a reader looking for a warm-up problem that does not
+    exist.
+    """
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = "Bearer " + token
@@ -199,7 +206,7 @@ def _get_json(
         with httpx.Client(**kwargs) as client:
             resp = client.get(url, headers=headers)
         if resp.status_code == 404:
-            return None, "HTTP 404 (endpoint not exposed, or no LLM call yet)"
+            return None, not_found
         if resp.status_code >= 400:
             return None, f"HTTP {resp.status_code}"
         # A proxy that answers with an HTML error page fails here, not upstream.
@@ -228,7 +235,9 @@ def probe_backend_model(
     target = url or actuator_url(base_url, metric)
     probe: dict = {"url": target}
     payload, error = _get_json(target, token=token, verify=verify, timeout_s=timeout_s,
-                               http_transport=http_transport)
+                               http_transport=http_transport,
+                               not_found="HTTP 404 (meter not registered: endpoint not exposed, "
+                                         "or the backend has made no LLM call yet)")
     if error:
         probe["error"] = error
         return {"probe": probe}
@@ -262,15 +271,22 @@ def probe_backend_options(
                                     f"{_actuator_base(base_url)}/env"]
     errors: list[str] = []
     for candidate in candidates:
-        payload, error = _get_json(candidate, token=token, verify=verify, timeout_s=timeout_s,
-                                   http_transport=http_transport)
+        payload, error = _get_json(
+            candidate, token=token, verify=verify, timeout_s=timeout_s,
+            http_transport=http_transport,
+            not_found="HTTP 404 (endpoint not exposed; add it to "
+                      "management.endpoints.web.exposure.include)")
         if error:
             errors.append(f"{candidate}: {error}")
             continue
         parsed = _parse_options(payload or {})
         if parsed:
             return {**parsed, "probe": {"url": candidate}}
-        errors.append(f"{candidate}: no spring.ai chat options")
+        # Reached the endpoint but read nothing: on Spring Boot 3 this is almost
+        # always show-values, which defaults to NEVER and redacts EVERY value to
+        # `******`, not just the secrets.
+        errors.append(f"{candidate}: no readable spring.ai chat options (if values are "
+                      f"redacted, set management.endpoint.*.show-values)")
     return {"probe": {"url": candidates[0], "error": "; ".join(errors)}}
 
 

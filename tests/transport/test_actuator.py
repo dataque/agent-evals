@@ -111,6 +111,27 @@ def test_a_lazily_registered_meter_404s_without_failing_the_run():
     assert "404" in result["probe"]["error"]
 
 
+def test_the_404_message_distinguishes_a_lazy_meter_from_an_unexposed_endpoint():
+    # only the meter is lazy. Telling a reader that a 404 on configprops might
+    # mean "no LLM call yet" sends them chasing a warm-up problem that cannot
+    # exist there.
+    meter = probe_backend_model(SSE_URL, http_transport=_routes({}))["probe"]["error"]
+    config = probe_backend_options(SSE_URL, http_transport=_routes({}))["probe"]["error"]
+    assert "no LLM call yet" in meter
+    assert "no LLM call yet" not in config
+    assert "exposure.include" in config
+
+
+def test_a_reachable_but_redacted_config_endpoint_says_so():
+    # Spring Boot 3 defaults show-values to NEVER, redacting EVERY value
+    redacted = {"contexts": {"application": {"beans": {"b": {
+        "prefix": "spring.ai.azure.openai.chat",
+        "properties": {"options": {"reasoningEffort": "******"}}}}}}}
+    transport = _routes({"/gw/actuator/configprops": (200, redacted)})
+    error = probe_backend_options(SSE_URL, http_transport=transport)["probe"]["error"]
+    assert "show-values" in error
+
+
 def test_a_probe_that_learns_nothing_still_records_that_it_asked():
     transport = _routes({"/gw/actuator/metrics/gen_ai.client.operation": (200, {})})
     probe = probe_backend_model(SSE_URL, http_transport=transport)["probe"]
