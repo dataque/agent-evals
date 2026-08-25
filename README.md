@@ -194,9 +194,26 @@ and the eval's own config, cannot be mistaken for it. It records `model`,
 files were read, each with a **sha256 digest**, so two runs can be shown to share
 a configuration without trusting the values to have been copied correctly.
 
-A **Spring Boot fat jar** is read the same way (`BOOT-INF/classes/`), and a built
-jar **outranks** a source tree when both are found, with `kind` saying which
-answered. The jar is the artefact the pod actually started; the checkout beside
+**Point it at the backend repo.** Set `AGENT_EVALS_LOCAL_BACKEND_ROOT_FOLDER`
+(or `..._DEVPOD_...`) to the backend **repo root**, not the service and not the
+yaml. The eval finds the BFF service's `application.yaml`, or its jar,
+underneath it. Set it whenever more than one backend checkout is on disk: a
+workspace holding a working copy plus an eval baseline will otherwise let the
+sweep read a stale sibling and report **its** model as the one that answered the
+run. A root that doesn't exist is an error, not a quiet fallback to sweeping.
+
+Within that root, the **service** decides: `service:` defaults to `bff`, matching
+the eval's `/api/v1/bff/ai/agent/sse` endpoint, because a backend monorepo's
+other services configure their own LLMs. The hint is matched against the service
+directory (the one holding `src` or `target`), never the whole path, so an
+ancestor folder that happens to contain the word can't match everything. Service
+identity outranks artefact type: the wrong service's jar names a model that never
+answered a single turn. If nothing matches the hint the section still fills in,
+flagged with `service_hint_unmatched`.
+
+A **Spring Boot fat jar** is read the same way (`BOOT-INF/classes/`), and within
+the chosen service a built jar **outranks** the source tree, with `kind` saying
+which answered. The jar is the artefact the pod actually started; the checkout beside
 it may have been synced or edited since, and this section exists precisely
 because a deployment can stop matching its own source.
 

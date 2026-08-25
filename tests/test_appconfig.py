@@ -372,3 +372,88 @@ def test_a_corrupt_jar_never_fails_a_run(tmp_path):
     _service(cwd.parent, "backend2", BFF)
 
     assert read_backend_config(search_from=cwd)["model"] == "gpt-5.2"
+
+
+# --- picking the RIGHT service, in a workspace with several checkouts ---------
+
+def _pod_workspace(tmp_path: Path) -> tuple[Path, Path]:
+    """The layout that actually bit us in the pod (2026-08-25).
+
+    Two backend checkouts side by side: the real one, and an eval baseline that
+    happens to hold a BUILT jar for a different service. Preferring jars over
+    source then picked `requisition-service` out of the baseline repo and
+    recorded ITS model as the one that answered the run.
+    """
+    cwd = tmp_path / "projects" / "agent-evals"
+    cwd.mkdir(parents=True)
+    projects = cwd.parent
+
+    real = projects / "talent-marketplace-be"
+    (real / "api-service" / "bff-service" / "src" / "main" / "resources").mkdir(parents=True)
+    (real / "api-service" / "bff-service" / "src" / "main" / "resources" / "application.yaml"
+     ).write_text(BFF.replace("gpt-5.2", "gpt-5.5"))
+    (real / "domain-service" / "requisition-service" / "src" / "main" / "resources"
+     ).mkdir(parents=True)
+    (real / "domain-service" / "requisition-service" / "src" / "main" / "resources"
+     / "application.yaml").write_text(BFF)
+
+    baseline = projects / "be-eval-baseline"
+    _fat_jar(baseline / "domain-service" / "requisition-service" / "target"
+             / "requisition-service-0.1.0.jar", {"application.yaml": BFF})
+    return cwd, real
+
+
+def test_the_backend_root_pins_which_checkout_is_read(tmp_path):
+    cwd, real = _pod_workspace(tmp_path)
+    section = read_backend_config(search_from=cwd, backend_root=str(real))
+    assert "be-eval-baseline" not in section["path"]
+    assert "bff-service" in section["path"]
+    assert section["model"] == "gpt-5.5"
+    assert section["backend_root"] == str(real)
+
+
+def test_the_bff_service_outranks_another_services_built_jar(tmp_path):
+    # service identity beats artefact type: the WRONG service's jar names a model
+    # that never answered a single turn of this run
+    cwd, _real = _pod_workspace(tmp_path)
+    section = read_backend_config(search_from=cwd)
+    assert "bff-service" in section["path"]
+    assert section["model"] == "gpt-5.5"
+
+
+def test_the_bff_jar_wins_over_the_bff_source(tmp_path):
+    # within the right service, the jar is what the pod actually started
+    cwd, real = _pod_workspace(tmp_path)
+    _fat_jar(real / "api-service" / "bff-service" / "target" / "bff-service-0.1.0.jar",
+             {"application.yaml": BFF.replace("gpt-5.2", "gpt-5.9")})
+    section = read_backend_config(search_from=cwd, backend_root=str(real))
+    assert section["kind"] == "jar"
+    assert "bff-service" in section["path"]
+    assert section["model"] == "gpt-5.9"
+
+
+def test_the_hint_matches_the_service_dir_not_the_whole_path(tmp_path):
+    # an ancestor directory containing the hint (a workspace folder, a repo named
+    # after the product, a temp dir named after this very test) must not make
+    # every candidate "match" and so discriminate nothing
+    from agent_evals.appconfig import service_name
+    bff = Path("/w/bff-workspace/talent-be/api-service/bff-service/src/main/resources/application.yaml")
+    other = Path("/w/bff-workspace/talent-be/domain-service/requisition-service/target/r-0.1.0.jar")
+    assert service_name(bff) == "bff-service"
+    assert service_name(other) == "requisition-service"
+
+
+def test_a_service_hint_that_matches_nothing_is_flagged_not_hidden(tmp_path):
+    cwd, real = _pod_workspace(tmp_path)
+    section = read_backend_config(search_from=cwd, backend_root=str(real), service="nosuchsvc")
+    assert section["service_hint_unmatched"] is True
+    assert section["service_hint"] == "nosuchsvc"
+
+
+def test_a_root_that_does_not_exist_is_an_error_not_a_silent_sweep(tmp_path):
+    # falling back to the workspace would hide the mistake behind a plausible
+    # answer read from the wrong repository
+    cwd, _real = _pod_workspace(tmp_path)
+    section = read_backend_config(search_from=cwd, backend_root=str(tmp_path / "nope"))
+    assert "backend root not found" in section["error"]
+    assert "model" not in section

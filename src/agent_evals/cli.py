@@ -251,7 +251,10 @@ def _backend_config_params(target: dict) -> dict:
     cfg = target.get("model_config") or {}
     if cfg.get("enabled") is False:
         return {}
-    return read_backend_config(path=cfg.get("path"), profiles=cfg.get("profiles"))
+    return read_backend_config(path=cfg.get("path"),
+                               backend_root=cfg.get("root"),
+                               service=cfg.get("service"),
+                               profiles=cfg.get("profiles"))
 
 
 def _backend_warnings(backend: dict) -> list[str]:

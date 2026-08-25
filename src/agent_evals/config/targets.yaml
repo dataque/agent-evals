@@ -36,13 +36,21 @@ targets:
       reasoning_effort: "${AGENT_EVALS_LOCAL_REASONING_EFFORT:-}"  # e.g. low | medium | high
       api_version: "${AGENT_EVALS_LOCAL_API_VERSION:-}"           # e.g. 2024-10-21
     # The backend's OWN application.yaml, read straight off disk into the
-    # separate `backend_config` params block. Needs NO .env entry and no env var:
-    # when the eval runs beside the backend, the file is found by sweeping the
-    # working directory and its parent for a Spring config that configures a chat
-    # model. This is the only way to record reasoning effort when the backend
-    # exposes no /actuator/configprops. Everything below is optional and only
-    # narrows the search.
+    # separate `backend_config` params block. This is the only way to record
+    # reasoning effort when the backend exposes no /actuator/configprops.
+    # With nothing set it still works: the file is found by sweeping the working
+    # directory and its parent for a Spring config that configures a chat model.
+    # Set `root` anyway when more than one backend checkout is on disk.
     model_config:
+      # The backend REPO root. Set it: a workspace commonly holds more than one
+      # checkout (a working copy, a restored copy, an eval baseline), and without
+      # a root the search can read a stale sibling's jar and report ITS model as
+      # the one that answered this run.
+      root: "${AGENT_EVALS_LOCAL_BACKEND_ROOT_FOLDER:-}"
+      # Which service inside that repo answers the eval's endpoint. Defaults to
+      # `bff`, matching /api/v1/bff/ai/agent/sse; the monorepo's other services
+      # configure their own LLMs and must not be read instead.
+      # service: bff
       # path: "../backend/api-service/bff-service/src/main/resources/application.yaml"
       # profiles: ["local"]   # also merge application-<profile>.yaml, in Spring's order
       # enabled: false        # skip the file read entirely
@@ -67,6 +75,8 @@ targets:
       deployment: "${AGENT_EVALS_DEVPOD_DEPLOYMENT:-}"
       reasoning_effort: "${AGENT_EVALS_DEVPOD_REASONING_EFFORT:-}"
       api_version: "${AGENT_EVALS_DEVPOD_API_VERSION:-}"
+    model_config:                # backend repo root -> `backend_config`; see `local`
+      root: "${AGENT_EVALS_DEVPOD_BACKEND_ROOT_FOLDER:-}"
     # TLS for corporate / private-CA endpoints. Pick ONE:
     tls:
       use_truststore: true    # use the OS trust store / Keychain — recommended; needs `pip install truststore`

@@ -199,32 +199,86 @@ def _collect_model_fields(node: Any, out: dict, *, in_chat: bool = False) -> Non
         _collect_model_fields(value, out, in_chat=in_chat or normalised == "chat")
 
 
-def find_application_yaml(search_from: Path, explicit: str | list[str] | None = None) -> list[Path]:
+# The service actually under test. A backend monorepo has many services and
+# most of them configure an LLM, so "declares a chat model" is not enough to
+# identify the one the eval is talking to. The eval's endpoint is
+# `/api/v1/bff/ai/agent/sse`, so the BFF is the service that answers.
+DEFAULT_SERVICE_HINT = "bff"
+
+
+def service_name(path: Path) -> str:
+    """The service a config file belongs to, from its position in the tree.
+
+    ``<repo>/<group>/bff-service/src/main/resources/application.yaml`` and
+    ``<repo>/<group>/bff-service/target/bff-service-0.1.0.jar`` both belong to
+    ``bff-service``: the directory holding ``src`` or ``target``.
+
+    Derived from that one component rather than the whole path on purpose. An
+    ancestor directory can easily contain the hint (a workspace folder, a repo
+    named after the product, a temp directory named after the test) and matching
+    the full string would then match every candidate and discriminate nothing.
+    """
+    parts = [p.lower() for p in path.parts]
+    for marker in ("src", "target"):
+        if marker in parts:
+            index = parts.index(marker)
+            if index > 0:
+                return parts[index - 1]
+    return path.stem.lower() if _is_jar(path) else path.parent.name.lower()
+
+
+def _rank(path: Path, hint: str) -> tuple:
+    """Sort key for candidates, best first.
+
+    Service identity outranks artefact type: the WRONG service's jar is worse
+    provenance than the RIGHT service's source, because it names a model that
+    never answered a single turn of this run.
+    """
+    return (0 if hint and hint in service_name(path) else 1,  # the service under test
+            0 if _is_jar(path) else 1,                        # then what the pod started
+            # component-wise, so `backend/` sorts before `backend-baseline/` as
+            # pathlib orders them; a raw string compare puts '-' before '/'.
+            tuple(p.lower() for p in path.parts))
+
+
+def find_application_yaml(search_from: Path, explicit: str | list[str] | None = None,
+                          root: str | None = None, service: str | None = None) -> list[Path]:
     """Candidate Spring config files, best first.
 
-    An explicit path is taken at its word. Otherwise the working directory and
-    its parent are swept, and candidates are ranked by whether they actually
-    configure an LLM: a monorepo has one ``application.yaml`` per service and
-    only one of them mentions ``spring.ai``.
+    An explicit path is taken at its word. Given a ``root``, only that tree is
+    swept, which is how a workspace holding several backend checkouts (a working
+    copy, a restored copy, an eval baseline) is kept from deciding the answer by
+    alphabetical accident. With neither, the working directory and its parent are
+    swept, since the eval runs beside the backend.
+
+    Candidates must actually configure a chat model, and are then ranked by
+    ``service`` (default ``bff``) before artefact type.
     """
     if explicit:
         paths = [explicit] if isinstance(explicit, str) else list(explicit)
         return [Path(p).expanduser() for p in paths]
 
+    if root:
+        roots = [Path(root).expanduser()]
+    else:
+        roots = [search_from, search_from.parent]
+
     seen: list[Path] = []
-    for patterns in (_JAR_GLOBS, _GLOBS):  # a built jar outranks the source tree
-        for root in (search_from, search_from.parent):
+    for patterns in (_JAR_GLOBS, _GLOBS):
+        for base in roots:
             for pattern in patterns:
                 try:
-                    matches = sorted(root.glob(pattern))
+                    matches = sorted(base.glob(pattern))
                 except OSError:
                     continue
                 for match in matches:
                     if match.is_file() and match not in seen:
                         seen.append(match)
+    hint = (service or DEFAULT_SERVICE_HINT).strip().lower()
     # only the ones that configure a model, so a monorepo's other services and
     # the eval's own config cannot be mistaken for the backend's
-    return [p for p in seen if _mentions_spring_ai(p)]
+    candidates = [p for p in seen if _mentions_spring_ai(p)]
+    return sorted(candidates, key=lambda p: _rank(p, hint))
 
 
 def _mentions_spring_ai(path: Path) -> bool:
@@ -246,9 +300,15 @@ def _mentions_spring_ai(path: Path) -> bool:
 
 
 def read_backend_config(*, path: str | list[str] | None = None,
+                        backend_root: str | None = None,
+                        service: str | None = None,
                         profiles: list[str] | None = None,
                         search_from: Path | None = None) -> dict:
     """The backend's declared model settings, for ``params.json``. Never raises.
+
+    ``backend_root`` points at the backend repo, which is the reliable way to say
+    WHICH checkout to read in a workspace holding more than one. ``service``
+    (default ``bff``) says which service inside it answers the eval's endpoint.
 
     Returns the flattened model fields, the ``spring.ai`` subtree it read them
     from (secrets redacted), and which files and profiles were applied. On
@@ -257,8 +317,16 @@ def read_backend_config(*, path: str | list[str] | None = None,
     """
     root = search_from or Path.cwd()
     wanted = [str(p) for p in (profiles or [])]
+    backend_root = (backend_root or "").strip() or None
+    hint = (service or DEFAULT_SERVICE_HINT).strip().lower()
+    if backend_root and not Path(backend_root).expanduser().is_dir():
+        # A root that does not exist is a configuration mistake, and silently
+        # sweeping the workspace instead would hide it behind a plausible answer
+        # read from the wrong repository.
+        return {"error": f"backend root not found: {backend_root}",
+                "backend_root": backend_root}
     try:
-        candidates = find_application_yaml(root, path)
+        candidates = find_application_yaml(root, path, root=backend_root, service=hint)
     except Exception as exc:  # noqa: BLE001 - provenance must not fail a run
         return {"error": f"{type(exc).__name__}: {exc}"}
 
@@ -300,10 +368,20 @@ def read_backend_config(*, path: str | list[str] | None = None,
         if siblings:
             chosen["profile_files_available"] = siblings
         chosen["source"] = "application.yaml"
+        if backend_root:
+            chosen["backend_root"] = backend_root
+        chosen["service_hint"] = hint
+        if hint and hint not in service_name(candidate):
+            # Read SOMETHING, but not the service under test. Silence here is how
+            # a run ends up citing another service's model as its own.
+            chosen["service_hint_unmatched"] = True
 
     if chosen is None:
+        searched = [backend_root] if backend_root else [str(root), str(root.parent)]
         return {"error": "no application.yaml with spring.ai model settings found",
-                "searched": [str(root), str(root.parent)]}
+                "searched": searched,
+                **({"backend_root": backend_root} if backend_root else {}),
+                "service_hint": hint}
     if conflicting:
         chosen["conflicting_candidates"] = conflicting
     return chosen
