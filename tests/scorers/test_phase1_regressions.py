@@ -203,3 +203,51 @@ def test_no_route_violations_key_when_every_route_is_in_envelope():
                     sink=_NullSink()).run([case], run_name="t")
     assert "route_violations" not in report.aggregates
     assert "cases.route_violations" not in report.aggregates
+
+
+def test_persona_boundary_is_checked_on_every_turn_not_just_golden_ones():
+    """A suite covering one persona must notice reaching another's agent (E18).
+
+    Checked suite-wide from config, so it also covers turns that declare no
+    expected_routes at all, which is where a misroute is least likely to be seen.
+    """
+
+    class _Stray:
+        def __init__(self, case): self.case = case
+        def ask(self, question):
+            return RunRecord(thread_id="t", run_id="r", assistant_text="ok",
+                             subagent_routes=[SubagentRoute(
+                                 subagent="job-description-generation-agent", via="task_tool")])
+
+    # NB: no expected_routes on this case, so plan_quality skips it entirely
+    case = EvalCase(id="no-routing-golden", question="q", expectations=Expectations())
+    cfg = {"forbidden_routes": ["job-description-generation-agent"]}
+    report = Runner(session_factory=_Stray, scorers=[PlanQuality()],
+                    sink=_NullSink(), config=cfg).run([case], run_name="t")
+
+    b = report.aggregates["forbidden_route_violations"]
+    assert len(b) == 1
+    assert b[0]["case_id"] == "no-routing-golden"
+    assert b[0]["routes"] == ["job-description-generation-agent"]
+    assert report.aggregates["cases.forbidden_routes"] == 1.0
+    # and it is reported separately from the envelope check
+    assert "route_violations" not in report.aggregates
+
+
+def test_persona_boundary_silent_when_unconfigured_or_respected():
+    class _Good:
+        def __init__(self, case): self.case = case
+        def ask(self, question):
+            return RunRecord(thread_id="t", run_id="r", assistant_text="ok",
+                             subagent_routes=[SubagentRoute(
+                                 subagent="talent-profile-management-agent", via="task_tool")])
+
+    case = EvalCase(id="c", question="q", expectations=Expectations())
+    cfg = {"forbidden_routes": ["job-description-generation-agent"]}
+    r1 = Runner(session_factory=_Good, scorers=[PlanQuality()], sink=_NullSink(),
+                config=cfg).run([case], run_name="t")
+    assert "forbidden_route_violations" not in r1.aggregates
+    # unconfigured: no boundary, no key
+    r2 = Runner(session_factory=_Good, scorers=[PlanQuality()], sink=_NullSink()).run(
+        [case], run_name="t")
+    assert "forbidden_route_violations" not in r2.aggregates

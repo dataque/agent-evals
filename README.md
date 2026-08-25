@@ -142,16 +142,40 @@ export no_proxy="${no_proxy},<judge-host>"; export NO_PROXY="$no_proxy"
 ```
 
 Two things the eval can't set but you should **record** for reproducibility: the
-**backend's own LLM credentials** (configured backend-side — without them the agent
-itself errors), and the **backend build/commit under test**. The TLS/proxy
-reasoning lives in `docs/troubleshooting.md`; the full
+**backend's own LLM credentials** (configured backend-side; without them the agent
+itself errors), and the **backend build/commit under test**.
+
+The eval can't read the backend's model either, so **declare it** and it goes into
+`params.json` (E19): put a `model:` block on the target in `targets.yaml` (its
+fields are `${AGENT_EVALS_*}`-backed, so they can live in `.env`), or pass
+`--model` / `--deployment` / `--reasoning-effort` / `--api-version` per run. A run
+that declares nothing still runs, but warns and writes `"backend": {}`, and its
+artifacts then can't name the model that produced them. The values are recorded
+as `source: declared`: they are your word, not the backend's.
+
+The **judge** model needs no declaring. `judge: azure_openai` names a backend, not
+a model, so the run also records `judge_model` (backend, model/deployment,
+temperature, max_tokens, api_version) read off the judge the harness actually
+built, plus `judge_per_metric` when a metric is bound to a different backend.
+Credentials are never recorded. Change `AZURE_OPENAI_DEPLOYMENT_NAME` and the
+next run's artifacts say so, which is what makes two judged runs comparable.
+
+```bash
+agent-evals run --target local --suite hr --metrics all --judge azure_openai \
+  --model gpt-5.5 --reasoning-effort high
+```
+
+The TLS/proxy reasoning lives in `docs/troubleshooting.md`; the full
 setup path is in `docs/evaluation-setup.md`.
 
 ### Viewing results
 
 **JSONL sink** (default) writes to `eval-runs/<run-name>/`: `summary.json`
 (aggregates), `scores.jsonl` (per-case scores), `runs.jsonl` (full
-`RunRecord`s), `cases.jsonl`, `params.json`.
+`RunRecord`s), `cases.jsonl`, `params.json` (what was run: suite, target,
+metrics, judge, version, the `dataset` fingerprint, the declared `backend`
+model / deployment / reasoning effort / API version, and the observed
+`judge_model`).
 
 **MLflow sink** — install the extra, run with `--sink mlflow`, then launch the
 UI on the same tracking store:

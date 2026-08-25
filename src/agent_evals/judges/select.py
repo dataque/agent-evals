@@ -72,3 +72,38 @@ def apply_per_metric_judges(
         elif getattr(s, "judge", None) is None and default_judge is not None:
             s.judge = default_judge
     return result
+
+
+# Judge settings worth recording in a run's params, read off the constructed
+# judge rather than off the config, so what is reported is what actually scored.
+_DESCRIBE_FIELDS = ("model", "temperature", "max_tokens", "api_version")
+
+
+def describe_judge(judge: Judge | None) -> dict:
+    """Identify a judge instance for ``params.json`` (E19).
+
+    Unlike the system under test's model, the judge is configured BY the eval, so
+    its identity is observed rather than operator-declared: backend name plus
+    whichever of model/temperature/max_tokens/api_version the backend carries.
+    A judge class may override this by defining its own ``describe()``.
+
+    Deliberately never returns credentials: the deployment/model name is
+    provenance, the API key is not.
+
+    ``temperature``/``max_tokens`` are what the harness ASKS for. The LLM judge
+    degrades its request shape on a model's first 400 (GPT-5 / o-series reject a
+    non-default temperature), and params are written before the first call, so
+    read those two as configured intent rather than as what every request carried.
+    """
+    if judge is None:
+        return {}
+    describe = getattr(judge, "describe", None)
+    if callable(describe):
+        return dict(describe())
+    out = {"backend": getattr(judge, "name", type(judge).__name__)}
+    for field in _DESCRIBE_FIELDS:
+        value = getattr(judge, field, None)
+        if value not in (None, ""):
+            out[field] = value
+    out["source"] = "observed"
+    return out

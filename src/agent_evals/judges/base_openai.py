@@ -150,8 +150,11 @@ class AzureOpenAIJudge(_BaseLLMJudge):
 
     name = "azure_openai"
 
-    def __init__(self, *, model: str | None = None, **kw) -> None:
+    def __init__(self, *, model: str | None = None, api_version: str | None = None, **kw) -> None:
         super().__init__(model=model or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"), **kw)
+        # Resolved once, at construction, so the version the client actually
+        # uses is the one reported into params.json (E19); they cannot drift.
+        self.api_version = api_version or os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
 
     def _ensure_client(self):  # pragma: no cover - requires SDK + creds
         if self._client is None:
@@ -160,6 +163,6 @@ class AzureOpenAIJudge(_BaseLLMJudge):
             self._client = AzureOpenAI(
                 api_key=os.getenv("AZURE_OPENAI_API_KEY"),
                 azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
-                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21"),
+                api_version=self.api_version,
             )
         return self._client

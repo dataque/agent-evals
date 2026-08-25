@@ -20,7 +20,7 @@ from .core.runner import Runner
 from .datasets import load_suite, suite_fingerprint
 from .datasets.facts import derive_hr_facts
 from .envfile import expand_env, load_dotenv
-from .judges import apply_per_metric_judges, build_judge
+from .judges import apply_per_metric_judges, build_judge, describe_judge
 from .scorers import build_registry, get_scorers
 from .sinks import JsonlSink, MlflowSink
 from .transport import (
@@ -106,6 +106,60 @@ def _build_identity(target: dict) -> Identity:
     raise SystemExit(f"unsupported auth type: {atype!r}")
 
 
+def _judge_params(scorers, default_judge) -> tuple[dict, dict]:
+    """The judge side of a run's provenance: which model scored which metric (E19).
+
+    ``judge: azure_openai`` names a backend, not a model, and the backend reads
+    its deployment from the environment, so two runs can carry the same judge
+    name and be scored by different models. Read from the BOUND scorers, so a
+    ``per_metric`` entry that never applied (metric not selected, or not judged)
+    is absent rather than advertised.
+    """
+    per_metric = {}
+    for scorer in scorers:
+        judge = getattr(scorer, "judge", None)
+        if judge is not None and judge is not default_judge:
+            per_metric[scorer.spec.metric] = describe_judge(judge)
+    return describe_judge(default_judge), per_metric
+
+
+_BACKEND_FIELDS = ("model", "deployment", "reasoning_effort", "api_version")
+
+
+def _backend_params(target: dict, args: argparse.Namespace) -> dict:
+    """What the system under test was running, for ``params.json`` (E19).
+
+    The backend does not announce its own LLM: no AG-UI event carries it and
+    ``usage.by_model`` is null on every turn, so this is *operator-declared* and
+    only as truthful as whoever declared it. That is exactly why it is stamped
+    with ``source: declared`` rather than presented as observed.
+
+    Precedence: CLI flag > the target's ``model:`` block in the config (which may
+    itself come from ``.env``). Empty values are dropped so a run that declared
+    nothing is visibly empty rather than full of blank strings.
+    """
+    cfg = target.get("model") or {}
+    # the config block reads `model: {name: ...}`; params.json keys it as `model`
+    declared = {("model" if k == "name" else k): v for k, v in cfg.items()
+                if k in _BACKEND_FIELDS or k == "name"}
+    overrides = {
+        "model": args.model,
+        "deployment": args.deployment,
+        "reasoning_effort": args.reasoning_effort,
+        "api_version": args.api_version,
+    }
+    merged = {**declared, **{k: v for k, v in overrides.items() if v}}
+    backend = {}
+    for key in _BACKEND_FIELDS:
+        value = str(merged.get(key) or "").strip()
+        if value:
+            backend[key] = value
+    if not backend:
+        return {}
+    backend["source"] = "declared"
+    return backend
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     cfg = _load_config(args.config)
     targets = cfg.get("targets", {})
@@ -144,6 +198,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     runner = Runner(session_factory=session_factory, scorers=scorers, sink=sink,
                     judge=default_judge, config=run_config)
     run_name = args.run_name or f"{args.suite}-{args.target}-{time.strftime('%Y%m%d-%H%M%S')}"
+    backend = _backend_params(target, args)
+    judge_model, judge_per_metric = _judge_params(scorers, default_judge)
     params = {
         "suite": args.suite, "target": args.target, "metrics": args.metrics,
         "judge": default_name, "sink": args.sink, "version": agent_evals.__version__,
@@ -151,9 +207,23 @@ def cmd_run(args: argparse.Namespace) -> int:
         # The dataset is untracked, so without this a run cannot be shown to
         # reflect the suite in the repo (E5).
         "dataset": suite_fingerprint(args.suite),
+        # Which LLM the system under test was running, and how hard it was told
+        # to think. Without it two runs an hour apart are indistinguishable in
+        # their artifacts and no model A/B is citable (E19).
+        "backend": backend,
+        # And which LLM did the judging: a judged score is only comparable across
+        # runs that were scored by the same judge model (E19).
+        "judge_model": judge_model,
+        **({"judge_per_metric": judge_per_metric} if judge_per_metric else {}),
     }
+    if not backend:
+        print("WARNING: no backend model declared, so this run's artifacts will not name "
+              "the model that produced them (E19). Pass --model/--reasoning-effort, or set "
+              "a model: block on the target in targets.yaml.\n")
+    judge_label = default_name + (f"/{judge_model['model']}" if judge_model.get("model") else "")
     print(f"Running {len(cases)} cases [{args.suite} → {args.target}] "
-          f"with {len(scorers)} scorers, judge={default_name}, sink={args.sink} ...")
+          f"with {len(scorers)} scorers, judge={judge_label}, sink={args.sink}"
+          f"{', model=' + backend['model'] if backend.get('model') else ''} ...")
     report = runner.run(cases, run_name=run_name, params=params)
     _print_summary(report, run_name, args)
     return 0
@@ -234,6 +304,7 @@ def cmd_rescore(args: argparse.Namespace) -> int:
     runner = Runner(session_factory=build_replay_factory(records_by_case), scorers=scorers,
                     sink=sink, judge=default_judge, config=run_config)
     run_name = args.run_name or f"{src.name}-rescore-{time.strftime('%Y%m%d-%H%M%S')}"
+    judge_model, judge_per_metric = _judge_params(scorers, default_judge)
     params = {
         # Loud, machine-readable provenance: a replayed summary must never be
         # mistaken for a live run.
@@ -245,9 +316,20 @@ def cmd_rescore(args: argparse.Namespace) -> int:
         "judge": default_name, "sink": args.sink, "version": agent_evals.__version__,
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "dataset": fingerprint,
+        # Carried from the source run: a rescore re-reads frozen transcripts, so
+        # the backend that produced them is the source run's, never this one's
+        # (E19). Empty when the source predates backend recording.
+        "backend": src_params.get("backend") or {},
+        # The JUDGE, by contrast, runs live here, so this describes THIS
+        # invocation. The source run's judge is one field of the comparison a
+        # rescore exists to make, and is kept beside it.
+        "judge_model": judge_model,
+        **({"judge_per_metric": judge_per_metric} if judge_per_metric else {}),
+        "replay_source_judge_model": src_params.get("judge_model") or {},
     }
+    judge_label = default_name + (f"/{judge_model['model']}" if judge_model.get("model") else "")
     print(f"Replaying {len(replayable)} cases from {src} "
-          f"with {len(scorers)} scorers, judge={default_name} ...")
+          f"with {len(scorers)} scorers, judge={judge_label} ...")
     try:
         report = runner.run(replayable, run_name=run_name, params=params)
     except ReplayError as exc:
@@ -281,6 +363,12 @@ def _print_summary(report, run_name: str, args: argparse.Namespace) -> None:
         print(f"Skipped — precondition not met in this environment ({len(skipped)}):")
         for s in skipped:
             print(f"  {s['case_id']:<40} requires {s.get('requires')}")
+    boundary = agg.get("forbidden_route_violations") or []
+    if boundary:
+        print(f"\nPERSONA BOUNDARY BREACH ({len(boundary)}) — this suite's persona reached "
+              "another persona's agent:")
+        for b in boundary:
+            print(f"  {b['case_id']} t{b.get('turn_index')}: {b.get('routes')}")
     violations = agg.get("route_violations") or []
     if violations:
         print(f"\nROUTE VIOLATIONS ({len(violations)}) — a turn reached an agent outside its envelope:")
@@ -341,6 +429,14 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--persist", default=None, help="dir to persist raw SSE transcripts")
     r.add_argument("--run-name", default=None)
     r.add_argument("--timeout", type=float, default=None, help="per-turn timeout (s)")
+    r.add_argument("--model", default=None,
+                   help="LLM the system under test is running (e.g. gpt-5.5); recorded in "
+                        "params.json (E19). Overrides the target's model.name.")
+    r.add_argument("--deployment", default=None,
+                   help="backend's deployment/endpoint name for that model")
+    r.add_argument("--reasoning-effort", default=None,
+                   help="backend's reasoning-effort setting, e.g. low|medium|high")
+    r.add_argument("--api-version", default=None, help="backend's LLM API version")
     r.add_argument("--limit", type=int, default=None, help="only run the first N cases")
     r.set_defaults(func=cmd_run)
 

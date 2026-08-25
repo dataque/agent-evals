@@ -23,6 +23,16 @@ targets:
       scopes: ["readwrite.api.bff"]   # scope REQUIRED by the chat SSE endpoint (deployment-specific)
       user_claim: "ubs_auth_gpn"      # JWT claim THIS backend reads the user id from (deployment-specific)
     timeout_s: 120
+    # What the BACKEND is running, recorded verbatim into params.json (E19). The
+    # eval can't set these and the backend doesn't announce them, so they are
+    # operator-declared: keep them in step with the backend's own LLM config or a
+    # model A/B is uncitable. Override per run with --model / --deployment /
+    # --reasoning-effort / --api-version.
+    model:
+      name: "${AGENT_EVALS_LOCAL_MODEL:-}"                        # e.g. gpt-5.5
+      deployment: "${AGENT_EVALS_LOCAL_DEPLOYMENT:-}"             # backend's deployment/endpoint name
+      reasoning_effort: "${AGENT_EVALS_LOCAL_REASONING_EFFORT:-}"  # e.g. low | medium | high
+      api_version: "${AGENT_EVALS_LOCAL_API_VERSION:-}"           # e.g. 2024-10-21
 
   # Cloud / devpod: eval runs remotely and reaches the backend over the forwarded
   # HTTPS URL. Same no-SSO token (NO interactive Microsoft login).
@@ -39,6 +49,11 @@ targets:
       #   type: static
       #   token_env: "AGENT_EVALS_TOKEN"
     timeout_s: 120
+    model:                       # operator-declared backend LLM → params.json (E19); see `local`
+      name: "${AGENT_EVALS_DEVPOD_MODEL:-}"
+      deployment: "${AGENT_EVALS_DEVPOD_DEPLOYMENT:-}"
+      reasoning_effort: "${AGENT_EVALS_DEVPOD_REASONING_EFFORT:-}"
+      api_version: "${AGENT_EVALS_DEVPOD_API_VERSION:-}"
     # TLS for corporate / private-CA endpoints. Pick ONE:
     tls:
       use_truststore: true    # use the OS trust store / Keychain — recommended; needs `pip install truststore`
@@ -59,6 +74,17 @@ judge:
 # pass/fail. The JUDGE thresholds are STARTING points — tune them against human
 # agreement during the first azure_openai run, then freeze.
 scoring:
+  # Recalibrated 2026-08-19 (backlog item 18). Both fields described the removed
+  # skills model: `persona` credited "editing SKILLS directly in chat" and
+  # `topic_scope` put "viewing skills" and "EDITING skills in chat" IN scope.
+  # `get_skills` was removed on purpose and skills viewing is now a MyCareer
+  # deflection (E10), so the judge was being grounded in a product that no longer
+  # exists. This grounds #12 topic adherence and #21 role adherence on every
+  # scored row, so a stale description biases two judged metrics suite-wide.
+  #
+  # SCOPE NOTE: employee persona only. Hiring-manager capabilities are out of
+  # scope for this release by design and are deliberately not described here;
+  # widen both fields when the suite is extended to that persona.
   persona: >-
     The enterprise Career & Hiring Assistant. Tone: a calm, capable colleague who
     explains things clearly, doesn't waste the user's time, and knows when to stop
@@ -67,22 +93,35 @@ scoring:
     statements. No emojis, minimal exclamation marks, no small talk or jokes. It
     stays strictly within its remit (profile & skills, role matching, recruiter
     outreach) and never invents capabilities, policies, or data. It DOES correctly
-    point users to product affordances it actually has — editing SKILLS directly in
-    chat (staged in the session until the user explicitly Confirms a save), the
-    skills side panel, the "Download to send" email button (sent from Outlook),
-    MyCareer for editing non-skill profile sections, and the jobs portal to apply —
-    so mentioning or using those is correct, not fabrication.
+    point users to product affordances it actually has — suggesting skills and
+    refining the staged set in chat before the user explicitly Confirms a save,
+    the skills side panel, the "Download to send" email button (sent from
+    Outlook), MyCareer for viewing the skills already saved on the profile and for
+    editing non-skill profile sections, and the jobs portal to apply — so
+    mentioning or using those is correct, not fabrication.
   topic_scope: >-
-    In scope: HR & career — profile/skills management (viewing skills, suggesting
-    skills, EDITING skills in chat via the session-staged edit flow, and saving
-    them on the user's explicit Confirm), job/role discovery, role Q&A, and
-    recruiter-outreach drafting. Out of scope (deflect, don't answer): editing
-    NON-SKILL profile sections (experience/education/preferences) in chat,
-    applying to roles or sending emails on the user's behalf, other employees'
-    data, and any non-career topic. IMPORTANT: the deflection itself is in-scope
-    behaviour — pointing the user to MyCareer for non-skill edits, to the jobs
-    portal (goto/jobs) to apply, or to Download-to-send for emails is the
-    MANDATED response, never a scope violation.
+    In scope: HR & career — talent-profile analysis and completeness, suggesting
+    skills and refining the staged set in chat before the user's explicit Confirm
+    saves them, job/role discovery, role Q&A, and recruiter-outreach drafting.
+    Out of scope (deflect, don't answer): VIEWING or editing the skills already
+    saved on the profile, editing NON-SKILL profile sections
+    (experience/education/preferences) in chat, applying to roles or sending
+    emails on the user's behalf, other employees' data, and any non-career topic.
+    IMPORTANT: the deflection itself is in-scope behaviour — pointing the user to
+    MyCareer to view or edit saved profile content, to the jobs portal
+    (goto/jobs) to apply, or to Download-to-send for emails is the MANDATED
+    response, never a scope violation.
+  # Persona boundary (E18). This suite covers the EMPLOYEE persona only; the
+  # hiring-manager agents have no cases here by design. Any employee turn that
+  # reaches one of these is a scope failure, reported separately from the
+  # planning envelope and checked on EVERY turn, including the ones that carry
+  # no routing golden. Added after D14, where an employee skills edit was routed
+  # to job-description-generation-agent and every aggregate still read "no change".
+  forbidden_routes:
+    - job-description-generation-agent
+    - requisition-management-agent
+    - talent-matching-agent
+
   latency_total_sla_ms: 30000   # per-turn total budget; env/model dependent — tune per environment
   thresholds:
     # deterministic / probe — exact behaviour expected

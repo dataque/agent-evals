@@ -105,6 +105,9 @@ class Runner:
                     if never_derived:
                         result.metadata["precondition_never_derived"] = never_derived
                         result.metadata["requires"] = list(case.requires or [])
+                breached = self._forbidden_routes(runs)
+                if breached:
+                    result.metadata["forbidden_routes"] = breached
                 self.sink.log_case_result(result, runs)
                 case_results.append(result)
             aggregates = self._aggregate(case_results, all_runs)
@@ -150,6 +153,27 @@ class Runner:
         derived_false = [f for f in case.requires if f in facts and not facts[f]]
         never_derived = [f for f in case.requires if f not in facts]
         return derived_false, never_derived
+
+    def _forbidden_routes(self, runs: list[RunRecord]) -> list[dict]:
+        """Routes this suite must never reach, from ``config['forbidden_routes']``.
+
+        A persona boundary, asserted suite-wide rather than per case. A suite that
+        covers one persona has no golden for the other persona's agents, so a
+        per-case ``expected_routes`` list can only protect the turns that happen to
+        declare one. This check applies to EVERY turn, including the ones with no
+        routing golden at all, which is where a cross-persona misroute is most
+        likely to go unnoticed (E18).
+        """
+        forbidden = {str(r) for r in (self.config.get("forbidden_routes") or [])}
+        if not forbidden:
+            return []
+        out: list[dict] = []
+        for rec in runs:
+            hit = sorted({r.subagent for r in rec.subagent_routes
+                          if r.subagent and r.subagent in forbidden})
+            if hit:
+                out.append({"turn_index": rec.turn_index, "routes": hit})
+        return out
 
     def _score_case(self, case: EvalCase, runs: list[RunRecord]) -> CaseResult:
         scores: list[Score] = []
@@ -295,6 +319,18 @@ class Runner:
             agg["route_violations"] = route_violations
             agg["cases.route_violations"] = float(
                 len({v["case_id"] for v in route_violations}))
+
+        # Persona boundary breaches are reported separately from envelope
+        # violations: reaching another persona's agent is a scope failure, not a
+        # planning one, and it is checked on every turn rather than only on turns
+        # that carry a routing golden (E18).
+        boundary = [
+            {"case_id": cr.case_id, **b}
+            for cr in case_results for b in (cr.metadata.get("forbidden_routes") or [])
+        ]
+        if boundary:
+            agg["forbidden_route_violations"] = boundary
+            agg["cases.forbidden_routes"] = float(len({b["case_id"] for b in boundary}))
 
         # operational: latency distribution across all runs
         ttfts = [r.timing.ttft_ms for r in all_runs]
